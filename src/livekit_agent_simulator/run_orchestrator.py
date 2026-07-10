@@ -11,6 +11,7 @@ End conditions (first one wins):
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from .logging.event_writer import EventWriter
 from .logging.sqlite_store import RunStore
 from .preflight import run_preflight
 from .scenario import Scenario, SimulatorSpec, find_scenario
+from .script_runner import ScriptRunner, evaluate_script_log
 
 
 def new_run_id() -> str:
@@ -133,12 +135,29 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
             )
             bridge.watch_agent_tracks(agent_identity)
 
+            script_runner: ScriptRunner | None = None
+            script_task: asyncio.Task | None = None
+            if scenario.script_steps:
+                script_runner = ScriptRunner(
+                    scenario.script_steps,
+                    observer,
+                    bridge,
+                    writer,
+                    scenario_dir=scenario.path.parent,
+                )
+                script_task = asyncio.create_task(script_runner.run(), name="script-runner")
+
             bridge_task = asyncio.create_task(bridge.run(), name="gemini-bridge")
             try:
                 end_reason = await _conversation_loop(
                     scenario, run, observer, bridge, writer, cfg.observe.silence_threshold_ms / 1000
                 )
             finally:
+                if script_runner is not None:
+                    script_runner.stop()
+                if script_task is not None:
+                    script_task.cancel()
+                    await asyncio.gather(script_task, return_exceptions=True)
                 bridge.stop()
                 await asyncio.wait_for(asyncio.shield(_settle(bridge_task)), timeout=10)
 
@@ -156,6 +175,15 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
             if meta.get("room_name"):
                 await adapter.delete_room(meta["room_name"])
 
+    if status == "done" and scenario.script_steps:
+        script_verify = evaluate_script_log(
+            writer.events, scenario.script_steps, scenario.script_verify
+        )
+        writer.emit("script.verify", spec=script_verify, include_dialogue=False)
+        summary_extra = {"script_verify": script_verify}
+    else:
+        summary_extra = {}
+
     if status == "done" and cfg.judge is not None and scenario.pass_criteria:
         try:
             tool_events = [e for e in writer.events if e["kind"].startswith("tool.")]
@@ -171,6 +199,11 @@ async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
             verdict = {"verdict": "error", "notes": f"{type(e).__name__}: {e}"}
 
     summary = writer.finalize(status, meta=meta, verdict=verdict)
+    if summary_extra:
+        summary.update(summary_extra)
+        (report_dir / "summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     ended_utc = datetime.now(timezone.utc).isoformat()
     await store.insert_events(run_id, writer.events)
     await store.insert_turns(run_id, writer.turn_metrics())

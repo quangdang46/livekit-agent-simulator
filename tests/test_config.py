@@ -8,7 +8,7 @@ livekit:
   url: "wss://demo.livekit.cloud"
   api_key: "APIkey"
   api_secret: "secret"
-  agent_name: "voice-ai-worker-local"
+  agent_name: "my-agent-local"
 simulator:
   google_api_key: "AIzaTest"
   language: "ja-JP"
@@ -19,9 +19,9 @@ judge:
   model: "gemini-2.5-flash"
 observe:
   timezone: "Asia/Ho_Chi_Minh"
-  data_topics: ["voice_ai.flow"]
+  data_topics: ["app.events"]
   tool_event_patterns:
-    - match: { topic: "voice_ai.flow", type: "tool_started" }
+    - match: { topic: "app.events", type: "tool_started" }
       emit: tool.start
   silence_threshold_ms: 3000
 """
@@ -36,7 +36,7 @@ def _write(tmp_path, text):
 
 def test_load_valid_config(tmp_path):
     cfg = load_config(_write(tmp_path, VALID_CONFIG))
-    assert cfg.livekit.agent_name == "voice-ai-worker-local"
+    assert cfg.livekit.agent_name == "my-agent-local"
     assert cfg.livekit.agent_join_timeout_ms == 25_000  # default
     assert cfg.simulator.voice.model == "gemini-3.1-flash-live-preview"
     assert cfg.judge is not None and cfg.judge.model == "gemini-2.5-flash"
@@ -51,7 +51,7 @@ def test_missing_config_file(tmp_path):
 
 
 def test_missing_agent_name(tmp_path):
-    broken = VALID_CONFIG.replace('agent_name: "voice-ai-worker-local"', "")
+    broken = VALID_CONFIG.replace('agent_name: "my-agent-local"', "")
     with pytest.raises(ConfigError, match="livekit.agent_name"):
         load_config(_write(tmp_path, broken))
 
@@ -69,4 +69,4 @@ def test_snapshot_never_leaks_secrets(tmp_path):
     assert "secret" not in text
     assert "AIzaTest" not in text
     assert "APIkey" not in text
-    assert snap["livekit"]["agent_name"] == "voice-ai-worker-local"
+    assert snap["livekit"]["agent_name"] == "my-agent-local"

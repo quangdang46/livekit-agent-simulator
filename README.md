@@ -15,7 +15,7 @@ agent's registered `agent_name`; it never reads or modifies the target project's
 3. Joins as participant `lk-sim-caller`, bridges audio with a Gemini Live session
    (`gemini-3.1-flash-live-preview`) playing the scenario persona.
 4. Observes everything from inside the room: `lk.transcription` text streams, custom
-   data topics (e.g. `voice_ai.flow`), audio timing, interruptions, silences.
+   data topics (when configured), audio timing, interruptions, silences.
 5. Writes `reports/<run-id>/` — `events.jsonl`, `timeline.md`, `summary.json`,
    `meta.json` — and mirrors to `runs.sqlite`.
 6. Optional LLM judge (`gemini-2.5-flash`) scores the transcript + tool spans against
@@ -24,7 +24,7 @@ agent's registered `agent_name`; it never reads or modifies the target project's
 ## Quick start
 
 ```bash
-# In the repo you want to test (worker must be running with its agent_name):
+# In the repo you want to test (agent worker must be running; set `agent_name` in config):
 uv run --directory /path/to/livekit-agent-simulator lk-sim init
 #   → scaffolds .agent-sim/ (gitignored) — fill in config.yaml
 
@@ -61,5 +61,28 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim report <run-id>
 
 ## Docs
 
-- [AGENTS.md](AGENTS.md) — rules for AI agents (standalone repo; no worker context)
-- [docs/smoke-test.md](docs/smoke-test.md) — first end-to-end run against a local worker
+- [AGENTS.md](AGENTS.md) — rules for AI agents (research loop, package boundary)
+- [docs/smoke-test.md](docs/smoke-test.md) — first end-to-end run
+- [docs/portability.md](docs/portability.md) — consumer-specific dispatch / observe setup
+
+## CI / Release
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| [CI](.github/workflows/ci.yml) | PR / push → `master` | `pytest` (Python 3.10 + 3.12), `lk-sim --help`, `uv build` |
+| [Release](.github/workflows/release.yml) | tag `v*` | test → build → GitHub Release (wheel + sdist); PyPI if `PYPI_API_TOKEN` secret is set |
+
+Local check:
+
+```bash
+uv sync --extra dev
+uv run pytest -q
+uv build
+```
+
+Release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```

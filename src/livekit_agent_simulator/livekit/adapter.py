@@ -1,7 +1,6 @@
 """LiveKit server-side plumbing: room create, explicit agent dispatch, token, connect.
 
-Mirrors the dashboard pattern (`dispatch-room-worker-agent.ts` / `wait-for-room-worker-agent.ts`):
-create the room first, dispatch by agent_name, then poll participants until the agent joins.
+Pattern: create room → dispatch by `agent_name` → poll until agent participant joins.
 """
 
 from __future__ import annotations

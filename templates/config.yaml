@@ -7,7 +7,7 @@ livekit:
   url: "wss://YOUR-PROJECT.livekit.cloud"
   api_key: "APIxxxxxxxxxxxx"
   api_secret: "secretxxxxxxxxxxxxxxxxxxxxxxxx"
-  # Must match the agent_name your worker registers with (explicit dispatch).
+  # Must match agent_name registered with LiveKit (explicit dispatch).
   agent_name: "my-voice-agent-local"
   agent_join_timeout_ms: 25000
   # Opaque JSON string passed to LiveKit RoomAgentDispatch.metadata (project-specific keys).
@@ -34,7 +34,7 @@ observe:
   lk_transcription: true
   save_audio_segments: false
   export_turn_snapshots: false
-  # Custom worker data topics (empty = record every topic the worker publishes):
+  # Custom agent data topics (empty = record every topic the agent publishes):
   data_topics: []
   # Payload types auto-parsed as transcript turns on any data topic (generic across repos):
   transcript_payload_types:
@@ -42,16 +42,6 @@ observe:
   transcript_dedupe_window_ms: 5000
   # Map data-topic payloads to tool.start / tool.end / tool.error (project-specific):
   tool_event_patterns: []
-  # Example for voice-ai-worker (uncomment and set data_topics when targeting that repo):
-  # data_topics:
-  #   - "voice_ai.flow"
-  #   - "voice_ai.transcript"
-  # tool_event_patterns:
-  #   - match: { topic: "voice_ai.flow", type: "tool_started" }
-  #     emit: tool.start
-  #   - match: { topic: "voice_ai.flow", type: "tool_completed" }
-  #     emit: tool.end
-  #   - match: { topic: "voice_ai.flow", type: "tool_failed" }
-  #     emit: tool.error
+  # Consumer-specific observe/dispatch examples: docs/portability.md
   silence_threshold_ms: 4000
   turn_taking_warn_ms: 2500

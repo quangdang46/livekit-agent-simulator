@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from google import genai
 from google.genai import types
 from livekit import rtc
 
+from ..audio.pcm_cue import load_wav_pcm, play_pcm_to_source, resolve_cue_asset
 from ..config import SimConfig
 
 if TYPE_CHECKING:
@@ -32,6 +34,7 @@ if TYPE_CHECKING:
 GEMINI_IN_RATE = 16_000
 GEMINI_OUT_RATE = 24_000
 END_CALL_TOKEN = "[END_CALL]"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class GeminiCallerBridge:
@@ -58,6 +61,7 @@ class GeminiCallerBridge:
         self._tasks: list[asyncio.Task] = []
         self._source: rtc.AudioSource | None = None
         self._sim_out_text = ""
+        self._live_session: Any | None = None
 
     # ------------------------------------------------------------------ setup
 
@@ -116,6 +120,7 @@ class GeminiCallerBridge:
         source = await self.publish_mic()
 
         async with client.aio.live.connect(model=voice.model, config=config) as session:
+            self._live_session = session
             self.writer.emit(
                 "sim.gemini_connected",
                 spec={"model": voice.model, "voice": voice.voice, "language": voice.language},
@@ -134,12 +139,49 @@ class GeminiCallerBridge:
             try:
                 await self.end_call.wait()
             finally:
+                self._live_session = None
                 for t in self._tasks:
                     t.cancel()
                 await asyncio.gather(*self._tasks, return_exceptions=True)
 
     def stop(self) -> None:
         self.end_call.set()
+
+    async def inject_cue(
+        self,
+        text: str,
+        *,
+        label: str = "script",
+        delivery: str = "gemini_text",
+        asset: str | None = None,
+        scenario_dir: Path | None = None,
+    ) -> None:
+        """Inject caller speech while the agent is talking."""
+        if delivery == "room_pcm":
+            if self._source is None:
+                raise RuntimeError("Sim mic not published — cannot play room_pcm cue")
+            if not asset:
+                raise ValueError("room_pcm cue requires asset")
+            wav_path = resolve_cue_asset(asset, scenario_dir=scenario_dir, package_root=_REPO_ROOT)
+            pcm, rate, channels = load_wav_pcm(wav_path)
+            await play_pcm_to_source(self._source, pcm, sample_rate=rate, num_channels=channels)
+            self.writer.emit(
+                "sim.script_inject",
+                spec={"text": text, "label": label, "delivery": delivery, "asset": str(wav_path)},
+                source="script",
+                include_dialogue=False,
+            )
+            return
+
+        if self._live_session is None:
+            raise RuntimeError("Gemini live session not ready for inject")
+        await self._live_session.send_realtime_input(text=text)
+        self.writer.emit(
+            "sim.script_inject",
+            spec={"text": text, "label": label, "delivery": delivery},
+            source="script",
+            include_dialogue=False,
+        )
 
     # -------------------------------------------------------- agent -> gemini
 

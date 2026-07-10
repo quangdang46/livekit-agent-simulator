@@ -1,72 +1,78 @@
 # AGENTS.md — livekit-agent-simulator
 
-**Standalone repo.** MCP + CLI that dials **any** LiveKit voice agent from a target project's
-`.agent-sim/` folder. This package does **not** live inside voice-ai-worker or the dashboard.
+Standalone Python package: MCP + `lk-sim` CLI. Dials **any** LiveKit voice agent using
+`.agent-sim/` in a **target repo** (config, scenarios, reports). The agent under test is a
+black box — we never import or edit target application code unless the user asks.
 
 ---
 
-## Boundary (read first)
+## Boundary
 
-| In scope (this repo) | Out of scope |
+| In scope | Out of scope |
 |---|---|
-| `src/livekit_agent_simulator/` | voice-ai-worker source, dashboard tRPC, Prisma |
-| `.agent-sim/` layout, scenario JSONL schema | Target agent's model stack, `.env`, tools |
-| LiveKit dispatch + sim caller + behavior log | Project-specific dispatch key names in core code |
-| Gemini sim + judge (keys in target `.agent-sim/config.yaml`) | Reading or modifying the agent under test |
+| `src/livekit_agent_simulator/` | Target agent source, consumer app code, DB, env |
+| Scenario JSONL, Script timing, observer, reports | Parsing project-specific dispatch keys in core |
+| LiveKit room + dispatch + sim caller | Agent model stack, tools, business rules |
 
-**Zero-touch:** the agent under test is a black box. We only need `agent_name` + optional opaque
-`dispatch_metadata` / scenario `Dispatch.metadata`.
+**Opaque dispatch:** `config.yaml` → `livekit.dispatch_metadata` and scenario `Dispatch.metadata`
+are passed through as JSON strings. Core Python must not interpret consumer-specific keys.
 
-**Do not** treat voice-ai-worker (or any single consumer) as default context:
-
-- Do **not** load `voice-ai-worker/AGENTS.md`, worker `.env`, or dashboard SPEC when working here.
-- Do **not** hardcode `customAgentId`, `voice_ai.flow`, or other worker-only keys in core Python.
-- **Do** keep worker/dashboard examples in **target** `.agent-sim/scenarios/*.jsonl` or local docs
-  under the consumer repo — not in this package's defaults.
-
-Project-specific wiring belongs in the **target repo's** `.agent-sim/` (gitignored), via:
-
-- `config.yaml` → `livekit.dispatch_metadata` (opaque JSON string)
-- scenario line → `{"kind":"Dispatch","spec":{"metadata":"..."}}`
-
-The simulator passes metadata through; it never interprets project keys.
+**Target repo** = path passed as `project_root` / `--root`. Consumer wiring examples live in
+`docs/portability.md` — load that file only when the task is target `.agent-sim/` setup, not
+for package bugs or features.
 
 ---
 
-## Repositories (relationship)
+## Research before implement or fix (mandatory)
+
+Do **not** guess SDK wire formats, Gemini Live quirks, or LiveKit dispatch behavior.
+Complete this loop before non-trivial code changes; repeat if verification fails.
 
 ```
-livekit-agent-simulator/     ← YOU ARE HERE (Python package, MCP, lk-sim CLI)
-  └── installs into any target repo via MCP project_root
-
-<target-repo>/               e.g. voice-ai-worker, a customer's app
-  └── .agent-sim/            config, scenarios, reports, runs.sqlite (gitignored)
+Hypothesis → Exa / docs → .venv proof → src/ or report → fix → pytest
 ```
 
-When the user `@`-mentions a worker path, that is only the **test target** (`project_root`), not
-source code to edit unless they explicitly ask to change the worker.
+| Order | When | Where |
+|---|---|---|
+| 1 | Errors, prior art, API changes, regressions | **Exa** (`web_search_exa`, `web_fetch_exa`); note if using web fallback |
+| 2 | LiveKit dispatch, rooms, transcription, agents | **LiveKit MCP** (`docs_search`, `get_pages`, `code_search`) |
+| 3 | Gemini Live input/output, modalities, close codes | Exa + **`google-genai` in `.venv`** (`site-packages/google/genai/`) |
+| 4 | Types / methods actually imported | **Installed packages** in `.venv`: `livekit`, `livekit-api`, `google-genai` |
+| 5 | Our behavior vs expectation | `src/` + failing `reports/<run-id>/events.jsonl` |
+
+**Rules**
+
+- If docs and `.venv` disagree, trust **`.venv`** (what we run).
+- Cite real paths (file + symbol) in commits and chat — no “the SDK supports X” without proof.
+- Re-research when the first hypothesis fails; do not patch gaps with guesses.
+- One-line typos / test-only edits: still read the target file; Exa optional.
 
 ---
 
 ## Default workflow
 
 1. Read this file.
-2. Identify whether the task touches **this package** or a **target** `.agent-sim/` only.
-3. For protocol/SDK questions: LiveKit MCP + Exa + `livekit-agent-simulator/.venv` packages —
-   not worker `node_modules`.
-4. Plan impact → minimal diff → `uv run pytest -q` before done.
-5. Bug fixes: research with Exa / LiveKit docs first; do not guess wire formats.
+2. Classify: **package code** (`src/`, `tests/`) vs **target `.agent-sim/` only** (scenarios/config).
+3. Run the research loop above for anything beyond typos.
+4. Minimal diff → verify:
 
-### When to plan before coding
+```bash
+uv sync --extra dev
+uv run pytest -q
+```
+
+On Windows, if `uv sync` fails (MCP exe locked):
+
+```bash
+.venv\Scripts\python.exe -m pytest -q
+```
 
 | Task | Approach |
 |---|---|
-| Bug in sim/MCP/logging | Exa + LiveKit MCP → fix in this repo → pytest |
-| New MCP tool / scenario kind | Short plan in chat or `docs/plans/PLAN-…md` if large |
-| Target scenario/config only | Edit `<target>/.agent-sim/` — no package release needed |
-| Typo, test, single-line fix | Code immediately |
-
-No mandatory 4-agent swarm for this repo unless the user asks for deep investigation.
+| Bug / SDK / protocol | Exa + LiveKit MCP + `.venv` → fix → pytest |
+| New scenario kind / MCP tool | Research first; plan if large; tests required |
+| Target scenario/config only | Edit `<target>/.agent-sim/` — no package release |
+| Smoke against running agent | `lk-sim preflight` + `lk-sim execute <id> --root <path>` |
 
 ---
 
@@ -74,90 +80,39 @@ No mandatory 4-agent swarm for this repo unless the user asks for deep investiga
 
 | Path | Role |
 |---|---|
-| `src/livekit_agent_simulator/config.py` | Load `.agent-sim/config.yaml` |
-| `src/livekit_agent_simulator/scenario.py` | JSONL schema: Persona, Execute, Dispatch, PassCriteria |
-| `src/livekit_agent_simulator/ops.py` | Shared MCP + CLI operations |
-| `src/livekit_agent_simulator/run_orchestrator.py` | End-to-end run |
-| `src/livekit_agent_simulator/livekit/` | Room create, dispatch, observer |
-| `src/livekit_agent_simulator/gemini/` | Sim caller bridge + judge |
-| `src/livekit_agent_simulator/logging/` | Event envelope, SQLite, reports |
-| `src/livekit_agent_simulator/mcp_server.py` | FastMCP tools |
-| `src/livekit_agent_simulator/cli.py` | `lk-sim` |
-| `templates/` | Init scaffolds for `.agent-sim/` |
-| `docs/smoke-test.md` | First end-to-end run |
+| `config.py` | Load `.agent-sim/config.yaml` |
+| `scenario.py` / `script_parse.py` / `script_runner.py` | JSONL + timed Script cues |
+| `run_orchestrator.py` | End-to-end run |
+| `livekit/` | Room, dispatch, observer |
+| `gemini/` | Sim caller bridge + optional judge |
+| `logging/` | Event envelope, SQLite, reports |
+| `mcp_server.py` / `cli.py` | MCP tools + `lk-sim` |
+| `templates/` | Init scaffolds |
 | `tests/` | pytest |
+| `docs/portability.md` | Optional consumer wiring (not default agent context) |
+| `docs/smoke-test.md` | First end-to-end run |
 
 ---
 
-## MCP tools
-
-All tools take `project_root` = absolute path to the **target** repo (where `.agent-sim/` lives).
-
-| Tool | Purpose |
-|---|---|
-| `init_project` | Scaffold `.agent-sim/` |
-| `list_scenarios` | Glob `scenarios/*.jsonl` |
-| `validate_scenario` | Schema lint |
-| `export_scenario` | Parsed scenario JSON for customization |
-| `execute_scenario` | Validate + run one scenario |
-| `execute_scenarios` | Batch run (optional tag filter) |
-| `run_scenario` | Run without pre-validate (alias) |
-| `get_run_status` / `get_run_log` / `get_run_report` | Inspect runs |
-| `compare_runs` / `list_runs` | History |
-
-Cursor config example lives in the **target** repo: `<target>/.cursor/mcp.json` pointing `uv run`
-at this package directory.
-
----
-
-## Scenario JSONL (agent-sim/v1)
+## Scenario JSONL (`agent-sim/v1`)
 
 ```
-Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] → [PassCriteria]
+Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] → [Script] → [PassCriteria]
 ```
 
-- **Execute** — run params (`max_turns`, `timeout_s`, `first_speaker`); overrides Simulator.
-- **Dispatch** — opaque `metadata` JSON for `RoomAgentDispatch` (project defines keys).
-- **PassCriteria** — judge rubric (optional).
-
-Export API: `export_scenario(project_root, scenario_id)` returns structured JSON without secrets.
-
----
-
-## Verification
-
-From **this repo root**:
-
-```bash
-uv sync --extra dev
-uv run pytest -q
-```
-
-For a smoke run against a target (worker must be running separately):
-
-```bash
-uv run lk-sim preflight --root /path/to/target
-uv run lk-sim execute smoke-hello --root /path/to/target
-```
-
----
-
-## Research order (bugs / SDK)
-
-1. Exa (or web) for errors and prior art — **do not manual-guess fixes**
-2. LiveKit MCP (`docs_search`, `get_pages`) for dispatch, text streams, audio
-3. Installed SDK in `.venv`: `livekit`, `livekit-api`, `google-genai`
-4. This repo's `src/` and the failing run's `reports/<run-id>/events.jsonl`
+- **Execute** — run params; overrides Simulator.
+- **Dispatch** — opaque metadata for `RoomAgentDispatch`.
+- **Script** — timed caller cues (`agent_speaking` + `delay_ms`); `delivery: room_pcm` plays WAV into sim mic; log verify via `script_verify`.
+- **PassCriteria** — optional LLM judge rubric.
 
 ---
 
 ## Hard rules
 
-- **No target-repo code changes** unless the user explicitly asks to edit that repo.
-- **No dashboard/worker env vars** in this package's `pyproject.toml` or core config schema.
-- **dispatch_metadata is opaque** — never parse project-specific keys in Python core.
-- **Credentials** live in target `.agent-sim/config.yaml` (gitignored), not committed here.
-- After edits: **pytest must pass** before reporting done.
+- No target-repo application code changes unless explicitly requested.
+- No consumer env vars in `pyproject.toml` or core config schema.
+- Credentials only in target `.agent-sim/config.yaml` (gitignored).
+- **pytest must pass** before reporting done.
 
 ---
 
@@ -165,9 +120,9 @@ uv run lk-sim execute smoke-hello --root /path/to/target
 
 | Item | Value |
 |---|---|
-| Package / repo | `livekit-agent-simulator` |
+| Package | `livekit-agent-simulator` |
 | CLI | `lk-sim` |
-| MCP server entry | `livekit-agent-simulator-mcp` |
-| Dot folder (in target) | `.agent-sim/` |
+| MCP entry | `livekit-agent-simulator-mcp` |
+| Dot folder (target) | `.agent-sim/` |
 | Sim participant | `lk-sim-caller` |
 | Room prefix | `lk-sim-<run-id>` |

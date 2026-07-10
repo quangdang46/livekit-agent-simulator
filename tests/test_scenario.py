@@ -75,3 +75,18 @@ def test_wrong_api_version(tmp_path):
     f.write_text(VALID.replace("agent-sim/v1", "agent-sim/v0"), encoding="utf-8")
     with pytest.raises(ScenarioError, match="apiVersion"):
         parse_scenario(f)
+
+
+def test_parse_script_section(tmp_path):
+    content = (
+        VALID.replace('"agent greets the caller"', '"ok"')
+        + '\n{"kind":"Script","spec":{"steps":[{"id":"bc","say":"うん","delay_ms":500}],"verify":{"min_agent_finals_after_first_cue":1}}}\n'
+    )
+    f = tmp_path / "script.jsonl"
+    f.write_text(content, encoding="utf-8")
+    s = parse_scenario(f)
+    assert len(s.script_steps) == 1
+    assert s.script_steps[0].say == "うん"
+    assert s.script_verify is not None
+    assert s.script_verify.min_agent_finals_after_first_cue == 1
+    assert "Timed caller cues" in s.persona_system_prompt()

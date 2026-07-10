@@ -10,6 +10,8 @@ a section keyed by `kind`:
     {"kind":"Execute","spec":{"max_turns":2,"timeout_s":90,"first_speaker":"user"}}
     {"kind":"Dispatch","spec":{"metadata":"{\"yourProjectKey\":\"value\"}"}}
     {"kind":"PassCriteria","spec":{"criteria":["agent greets the caller politely"]}}
+    {"kind":"Script","spec":{"steps":[...],"verify":{...}}}
+    {"kind":"Script","spec":{"steps":[{"id":"backchannel","trigger":"agent_speaking","delay_ms":800,"say":"うん","label":"backchannel-during-agent"}],"verify":{"require_during_agent_speech":true,"min_agent_finals_after_first_cue":1}}}
 """
 
 from __future__ import annotations
@@ -19,8 +21,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .script_runner import ScriptStep, ScriptVerifySpec
+
 API_VERSION = "agent-sim/v1"
-KNOWN_KINDS = {"Persona", "Context", "Simulator", "Execute", "Dispatch", "PassCriteria"}
+KNOWN_KINDS = {"Persona", "Context", "Simulator", "Execute", "Dispatch", "PassCriteria", "Script"}
 
 
 class ScenarioError(Exception):
@@ -62,6 +66,8 @@ class Scenario:
     execute: ExecuteSpec | None = None
     dispatch: DispatchSpec | None = None
     pass_criteria: list[str] = field(default_factory=list)
+    script_steps: list[Any] = field(default_factory=list)
+    script_verify: ScriptVerifySpec | None = None
 
     @property
     def run_spec(self) -> SimulatorSpec:
@@ -111,6 +117,16 @@ class Scenario:
                 "first_speaker": self.run_spec.first_speaker,
             },
             "pass_criteria": self.pass_criteria,
+            "script_steps": len(self.script_steps),
+            "script_verify": None
+            if self.script_verify is None
+            else {
+                "require_during_agent_speech": self.script_verify.require_during_agent_speech,
+                "min_agent_finals_after_first_cue": self.script_verify.min_agent_finals_after_first_cue,
+                "min_user_finals_after_first_cue": self.script_verify.min_user_finals_after_first_cue,
+                "min_interruptions": self.script_verify.min_interruptions,
+                "max_interruptions": self.script_verify.max_interruptions,
+            },
         }
 
     def persona_system_prompt(self) -> str:
@@ -134,6 +150,12 @@ class Scenario:
             lines.append(f"Speaking style: {p['style']}")
         if self.context.get("notes"):
             lines.append(f"Background context you know: {self.context['notes']}")
+        if self.script_steps:
+            lines.append(
+                "Timed caller cues are injected automatically by the simulator while the agent speaks. "
+                "Do NOT try to backchannel or interrupt on your own timing — stay quiet and listen unless "
+                "you are answering a direct question after the agent finishes."
+            )
         if self.run_spec.first_speaker == "agent":
             lines.append("Wait for the assistant to greet you first, then respond.")
         else:
@@ -215,6 +237,14 @@ def parse_scenario(path: Path | str) -> Scenario:
             )
         elif kind == "PassCriteria":
             scenario.pass_criteria = [str(c) for c in spec.get("criteria", [])]
+        elif kind == "Script":
+            from .script_parse import parse_script_steps, parse_script_verify
+
+            try:
+                scenario.script_steps = parse_script_steps(spec, f"{path}:{line_no}")
+                scenario.script_verify = parse_script_verify(spec.get("verify"))
+            except ValueError as e:
+                raise ScenarioError(str(e)) from e
 
     if not scenario.persona.get("brief"):
         raise ScenarioError(f"{path}: Persona.spec.brief is required — the simulator needs a caller brief")
@@ -249,6 +279,7 @@ def list_scenarios(scenarios_dir: Path) -> list[dict[str, Any]]:
                     "has_execute": s.execute is not None,
                     "has_dispatch": s.dispatch is not None and bool(s.dispatch.metadata),
                     "pass_criteria": len(s.pass_criteria),
+                    "script_steps": len(s.script_steps),
                 }
             )
         except ScenarioError as e:

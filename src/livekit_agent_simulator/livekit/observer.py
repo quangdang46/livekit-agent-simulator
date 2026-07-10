@@ -99,6 +99,9 @@ class Observer:
         self._user_has_spoken = False
         self._current_turn_user_norm: str | None = None
 
+        self.agent_is_active_speaker = False
+        self._agent_active_since_mono: float | None = None
+
         # (role, normalized text) -> (source, monotonic time)
         self._recent_finals: dict[tuple[str, str], tuple[str, float]] = {}
 
@@ -112,6 +115,11 @@ class Observer:
     @property
     def agent_has_spoken(self) -> bool:
         return self._agent_has_spoken
+
+    def agent_active_duration_ms(self) -> int | None:
+        if self._agent_active_since_mono is None:
+            return None
+        return int((time.monotonic() - self._agent_active_since_mono) * 1000)
 
     # ------------------------------------------------------------------ attach
 
@@ -152,7 +160,13 @@ class Observer:
         @room.on("active_speakers_changed")
         def _on_speakers(speakers: list[rtc.Participant]) -> None:
             identities = [s.identity for s in speakers]
-            if self.agent_identity in identities:
+            agent_now = self.agent_identity in identities
+            if agent_now and not self.agent_is_active_speaker:
+                self._agent_active_since_mono = time.monotonic()
+            elif not agent_now:
+                self._agent_active_since_mono = None
+            self.agent_is_active_speaker = agent_now
+            if agent_now:
                 self.last_agent_activity_mono = time.monotonic()
             self.writer.emit(
                 "room.active_speakers",

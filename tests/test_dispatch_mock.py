@@ -26,7 +26,7 @@ def make_cfg(tmp_path, join_timeout_ms=800):
             url="wss://demo.livekit.cloud",
             api_key="APIkey",
             api_secret="secret",
-            agent_name="voice-ai-worker-local",
+            agent_name="my-agent-local",
             room_prepare_ms=0,
             agent_join_timeout_ms=join_timeout_ms,
         ),
@@ -72,7 +72,7 @@ async def test_create_room_and_dispatch(tmp_path):
     create_req = lkapi.room.create_room.call_args.args[0]
     assert create_req.name == "lk-sim-r-test-1"
     dispatch_req = lkapi.agent_dispatch.create_dispatch.call_args.args[0]
-    assert dispatch_req.agent_name == "voice-ai-worker-local"
+    assert dispatch_req.agent_name == "my-agent-local"
     assert dispatch_req.room == "lk-sim-r-test-1"
 
 
@@ -97,7 +97,7 @@ async def test_wait_for_agent_timeout(tmp_path):
     cfg = make_cfg(tmp_path, join_timeout_ms=100)
     adapter, _ = make_adapter(cfg, [[]])
 
-    with pytest.raises(AgentJoinTimeout, match="voice-ai-worker-local"):
+    with pytest.raises(AgentJoinTimeout, match="my-agent-local"):
         await adapter.wait_for_agent("room", poll_ms=20)
 
 
