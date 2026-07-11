@@ -158,8 +158,22 @@ lk-sim execute-all --tag smoke --root /path/to/target
 | `report` | `get_run_report` |
 | `compare` | `compare_runs` |
 | `runs` | `list_runs` |
+| `mcp` | *(stdio server — all tools above)* |
 
 There is **no** separate `run` command — always validate-then-run via `execute*`.
+
+MCP for Cursor / Claude / etc.:
+
+```json
+{
+  "mcpServers": {
+    "livekit-agent-simulator": {
+      "command": "lk-sim",
+      "args": ["mcp"]
+    }
+  }
+}
+```
 
 ---
 
