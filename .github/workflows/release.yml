@@ -77,8 +77,7 @@ jobs:
             asset: linux-x64
           - os: macos-latest
             asset: macos-arm64
-          - os: macos-13
-            asset: macos-x64
+          # macos-x64 (macos-13) often queues forever on free runners; add later if needed
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -172,9 +171,8 @@ jobs:
             | `lk-sim-windows-x64.zip` | Windows |
             | `lk-sim-linux-x64.zip` | Linux |
             | `lk-sim-macos-arm64.zip` | Apple Silicon |
-            | `lk-sim-macos-x64.zip` | Intel Mac |
             | `install.ps1` / `install.sh` | one-shot installers |
-            | `*.whl` | optional (devs / uv tool) |
+            | `*.whl` | optional (devs) |
 
       - name: Summary
         if: always()
