@@ -18,9 +18,10 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 4. `preflight` until `ok: true`.
 5. `scenario-init <id>` → edit the JSONL (`//` lines are guides; delete unused kinds).
 6. `validate <id>` then `execute <id>`.
-7. `report <run-id>` / open `reports/<run-id>/timeline.md` and optional `conversation.wav`.
+7. `report <run-id>` and/or **`web`** (browser: play audio + highlight transcript).
 
 ```bash
+# Install once (optional): curl install.sh | bash  →  lk-sim on PATH
 # From anywhere; point --root at the target repo under test
 lk-sim guide
 lk-sim init --root /path/to/target
@@ -30,6 +31,7 @@ lk-sim scenario-init smoke-hello --root /path/to/target   # skip if file already
 lk-sim validate smoke-hello --root /path/to/target
 lk-sim execute smoke-hello --root /path/to/target
 lk-sim report <run-id> --root /path/to/target
+lk-sim web --root /path/to/target                         # Ctrl+C to stop server
 ```
 
 MCP: same names as the right-hand column in §3 (`guide`, `init_project`, `preflight`, …).
@@ -110,6 +112,7 @@ lk-sim execute-all --tag smoke --root /path/to/target
 | CLI | MCP tool |
 |-----|----------|
 | `guide` | `guide` |
+| `web` | `web` |
 | `init` | `init_project` |
 | `preflight` | `preflight` |
 | `scenarios` | `list_scenarios` |
@@ -130,7 +133,7 @@ There is **no** separate `run` command — always validate-then-run via `execute
 
 ---
 
-## 4. Reports
+## 4. Reports & web player
 
 Directory: `.agent-sim/reports/<run-id>/`
 
@@ -143,12 +146,18 @@ Directory: `.agent-sim/reports/<run-id>/`
 | `summary.json` | Duration, turns, judge verdict |
 | `meta.json` | Scenario, room, config snapshot (no secrets) |
 | `conversation.wav` | Stereo PCM if `observe.record_audio: true` |
+| `cues.json` | Built on demand by `web` for transcript↔audio sync |
 
 ```bash
 lk-sim report <run-id> --root /path/to/target
 lk-sim log <run-id> --kind "transcript.*" --root /path/to/target
 lk-sim runs --root /path/to/target
+lk-sim web --root /path/to/target              # newest run
+lk-sim web <run-id> --root /path/to/target     # specific run
+# Opens http://127.0.0.1:8765 — play audio; transcript highlights by time; click line to seek
 ```
+
+No Node/Vite on the user machine. Player assets ship inside the package.
 
 ---
 

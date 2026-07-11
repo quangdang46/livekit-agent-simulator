@@ -57,6 +57,11 @@ class EventWriter:
             "agent": {"text": None, "final": False, "at_ms": None},
         }
 
+    @property
+    def t0_mono(self) -> float:
+        """``time.monotonic()`` origin for ``ts_mono_ms`` (run start)."""
+        return self._t0_mono
+
     # ---------------------------------------------------------------- dialogue
 
     def update_dialogue(self, role: str, text: str, final: bool, at_ms: int | None = None) -> None:

@@ -210,6 +210,11 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                     audio_path = report_dir / DEFAULT_FILENAME
                     result = recorder.finalize(audio_path)
                     if result is not None:
+                        t0_mono_ms = 0
+                        if recorder.started_mono is not None:
+                            t0_mono_ms = max(
+                                0, int((recorder.started_mono - writer.t0_mono) * 1000)
+                            )
                         audio_meta = {
                             "path": str(result.path),
                             "sample_rate": result.sample_rate,
@@ -217,6 +222,8 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                             "channels": {"left": "sim", "right": "agent"},
                             "sim_samples": result.sim_samples,
                             "agent_samples": result.agent_samples,
+                            # Align event ts_mono_ms → audio seconds: audio_ms = ts_mono_ms - t0_mono_ms
+                            "t0_mono_ms": t0_mono_ms,
                         }
                         meta["audio"] = audio_meta
                         writer.emit(

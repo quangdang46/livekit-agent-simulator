@@ -24,16 +24,25 @@ paths — use `execute_*` to validate then run.
 6. Optional LLM judge (`gemini-2.5-flash`) scores the transcript + tool spans against
    the scenario's PassCriteria.
 
+## Install (user machine)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh | bash
+# requires uv (or pipx). Then:
+lk-sim guide
+```
+
 ## Quick start
 
 ```bash
 # In the repo you want to test (agent worker must be running; set `agent_name` in config):
-uv run --directory /path/to/livekit-agent-simulator lk-sim init
+lk-sim init --root /path/to/target
 #   → scaffolds .agent-sim/ (gitignored) — fill in config.yaml
 
-uv run --directory /path/to/livekit-agent-simulator lk-sim preflight
-uv run --directory /path/to/livekit-agent-simulator lk-sim execute smoke-hello
-uv run --directory /path/to/livekit-agent-simulator lk-sim report <run-id>
+lk-sim preflight --root /path/to/target
+lk-sim execute smoke-hello --root /path/to/target
+lk-sim report <run-id> --root /path/to/target
+lk-sim web --root /path/to/target          # audio + transcript player (Ctrl+C to stop)
 ```
 
 ## Cursor MCP config
@@ -55,6 +64,7 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim report <run-id>
 |-----|----------|---------|
 | `init` | `init_project` | Scaffold `.agent-sim/` + gitignore |
 | `guide` | `guide` | On-demand setup/ops guide (markdown) |
+| `web` | `web` | Local report player (audio + transcript sync) |
 | `preflight` | `preflight` | Config + LiveKit connectivity |
 | `scenarios` | `list_scenarios` | List `scenarios/*.jsonl` |
 | `plugins` | `list_plugins` | Verify plugins |

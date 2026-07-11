@@ -2,7 +2,7 @@
 
 Public ops (both surfaces expose these, same semantics):
 
-    init_project, preflight, guide,
+    init_project, preflight, guide, web,
     list_scenarios, list_plugins, validate_scenario, export_scenario, init_scenario,
     execute_scenario, execute_scenarios, execute_scenario_dict,
     get_run_status, get_run_log, get_run_report, compare_runs, list_runs
@@ -435,11 +435,40 @@ async def list_runs(
     return await RunStore(cfg.sqlite_path).list_runs(limit=limit, scenario_id=scenario_id)
 
 
+def web(
+    project_root: Path | str,
+    run_id: str | None = None,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = True,
+    blocking: bool = True,
+) -> dict[str, Any]:
+    """Serve local report player (audio + transcript sync). Blocks until Ctrl+C if blocking."""
+    from .web.server import start_web_server
+
+    cfg = load_config(project_root)
+    reports = cfg.reports_dir
+    if not reports.is_dir():
+        raise ConfigError(f"No reports dir yet: {reports} — run execute first")
+    info = start_web_server(
+        reports,
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        run_id=run_id,
+        blocking=blocking,
+    )
+    # Drop non-JSON objects (HTTP server handles) for CLI/MCP responses.
+    return {k: v for k, v in info.items() if k not in ("server", "thread")}
+
+
 __all__ = [
     "ConfigError",
     "init_project",
     "preflight",
     "guide",
+    "web",
     "init_scenario",
     "list_scenarios",
     "list_plugins",

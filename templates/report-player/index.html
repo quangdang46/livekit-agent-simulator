@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>lk-sim reports</title>
+  <link rel="stylesheet" href="/player.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <h1>lk-sim reports</h1>
+      <p class="muted">Pick a run to play audio with time-synced transcript.</p>
+    </header>
+    <ul id="runs" class="run-list"></ul>
+    <p id="empty" class="muted hidden">No reports found under <code>.agent-sim/reports/</code>.</p>
+  </main>
+  <script>
+    async function main() {
+      const res = await fetch("/api/runs");
+      const runs = await res.json();
+      const ul = document.getElementById("runs");
+      const empty = document.getElementById("empty");
+      if (!runs.length) {
+        empty.classList.remove("hidden");
+        return;
+      }
+      for (const r of runs) {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = `/player.html?run=${encodeURIComponent(r.run_id)}`;
+        a.textContent = r.run_id;
+        const meta = document.createElement("span");
+        meta.className = "muted";
+        const bits = [
+          r.status || "?",
+          r.turn_count != null ? `${r.turn_count} turns` : null,
+          r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)}s` : null,
+          r.has_audio ? "audio" : "no audio",
+        ].filter(Boolean);
+        meta.textContent = " — " + bits.join(" · ");
+        li.appendChild(a);
+        li.appendChild(meta);
+        ul.appendChild(li);
+      }
+    }
+    main().catch((e) => {
+      document.getElementById("empty").textContent = String(e);
+      document.getElementById("empty").classList.remove("hidden");
+    });
+  </script>
+</body>
+</html>

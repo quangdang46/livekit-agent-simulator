@@ -73,6 +73,35 @@ def guide() -> None:
 
 
 @app.command()
+def web(
+    run_id: Optional[str] = typer.Argument(
+        None,
+        help="Run id under .agent-sim/reports/ (default: newest)",
+    ),
+    port: int = typer.Option(8765, "--port", "-p"),
+    host: str = typer.Option("127.0.0.1", "--host"),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not open a browser"),
+    root: Optional[Path] = ROOT_OPTION,
+) -> None:
+    """Local report player: audio + transcript sync while playing. (MCP: web)"""
+    try:
+        typer.secho("Starting report UI — Ctrl+C to stop", fg=typer.colors.GREEN)
+        info = ops.web(
+            _root(root),
+            run_id=run_id,
+            host=host,
+            port=port,
+            open_browser=not no_open,
+            blocking=True,
+        )
+        # blocking returns after shutdown; print was useful if non-blocking
+        _print({k: v for k, v in info.items() if k not in ("server", "thread")})
+    except (ConfigError, FileNotFoundError, OSError) as e:
+        typer.secho(str(e), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
 def preflight(
     root: Optional[Path] = ROOT_OPTION,
     no_connectivity: bool = typer.Option(False, "--no-connectivity", help="Skip LiveKit API check"),

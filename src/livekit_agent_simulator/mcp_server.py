@@ -29,6 +29,25 @@ def guide() -> dict[str, Any]:
 
 
 @mcp.tool
+def web(
+    project_root: str,
+    run_id: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = True,
+) -> dict[str, Any]:
+    """Start local report player (audio + transcript sync). Returns URL; server runs in background until process exits."""
+    return ops.web(
+        project_root,
+        run_id=run_id,
+        host=host,
+        port=port,
+        open_browser=open_browser,
+        blocking=False,
+    )
+
+
+@mcp.tool
 def init_project(project_root: str) -> dict[str, Any]:
     """Scaffold `.agent-sim/` (config.yaml + smoke scenario) in the target repo and gitignore it."""
     return ops.init_project(project_root)

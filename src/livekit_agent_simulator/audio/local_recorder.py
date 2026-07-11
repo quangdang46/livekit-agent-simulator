@@ -78,6 +78,11 @@ class LocalConversationRecorder:
     def started(self) -> bool:
         return self._started_mono is not None
 
+    @property
+    def started_mono(self) -> float | None:
+        """``time.monotonic()`` when recording t=0 was pinned (if started)."""
+        return self._started_mono
+
     def mark_start(self) -> None:
         """Pin t=0 if not already started (call when sim mic publishes)."""
         with self._lock:
