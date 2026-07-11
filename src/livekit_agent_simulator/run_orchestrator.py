@@ -348,16 +348,28 @@ async def _conversation_loop(
         if time.monotonic() > deadline:
             return "timeout"
 
+        # During scripted user silence (+ grace), do not kill the call as dead_call.
+        # Real agents may wait while the "caller" is intentionally quiet for N seconds.
+        scripted_hold = False
+        if hasattr(bridge, "scripted_silence_active"):
+            try:
+                scripted_hold = bool(bridge.scripted_silence_active())
+            except Exception:  # noqa: BLE001
+                scripted_hold = False
+
         silent_for = time.monotonic() - observer.last_agent_activity_mono
         if silent_for >= cfg_silence_s:
             if silence_reported_at is None or (time.monotonic() - silence_reported_at) >= cfg_silence_s:
                 writer.emit(
                     "silence.detected",
-                    spec={"duration_ms": int(silent_for * 1000)},
+                    spec={
+                        "duration_ms": int(silent_for * 1000),
+                        "scripted_user_silence": scripted_hold,
+                    },
                     source="observer",
                 )
                 silence_reported_at = time.monotonic()
-            if silent_for >= cfg_silence_s * 3:
+            if silent_for >= cfg_silence_s * 3 and not scripted_hold:
                 return "dead_call_silence"
         else:
             silence_reported_at = None

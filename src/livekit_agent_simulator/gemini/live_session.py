@@ -69,6 +69,9 @@ class GeminiCallerBridge:
         self._sim_out_text = ""
         self._live_session: Any | None = None
         self._suppress_output_until_mono: float | None = None
+        # Scripted user long-silence: hold persona + pause dead_call until this mono time (+ grace).
+        self._script_hold_until_mono: float | None = None
+        self._script_hold_grace_s: float = 20.0
 
     # ------------------------------------------------------------------ setup
 
@@ -175,6 +178,26 @@ class GeminiCallerBridge:
         until = time.monotonic() + duration_ms / 1000
         prev = self._suppress_output_until_mono
         self._suppress_output_until_mono = until if prev is None else max(prev, until)
+
+    def begin_scripted_user_silence(self, duration_ms: int, *, grace_s: float = 20.0) -> None:
+        """Mark intentional user silence so dead_call does not kill mid-hold / early recovery."""
+        if duration_ms <= 0:
+            return
+        until = time.monotonic() + duration_ms / 1000
+        prev = self._script_hold_until_mono
+        self._script_hold_until_mono = until if prev is None else max(prev, until)
+        self._script_hold_grace_s = max(self._script_hold_grace_s, float(grace_s))
+        self.suppress_persona_output(duration_ms)
+
+    def scripted_silence_active(self) -> bool:
+        """True while scripted silence is holding or within post-hold grace (agent may re-engage)."""
+        if self._script_hold_until_mono is None:
+            return False
+        grace = self._script_hold_grace_s
+        if time.monotonic() <= self._script_hold_until_mono + grace:
+            return True
+        self._script_hold_until_mono = None
+        return False
 
     def _persona_output_suppressed(self) -> bool:
         if self._suppress_output_until_mono is None:

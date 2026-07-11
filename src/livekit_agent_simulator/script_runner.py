@@ -146,8 +146,16 @@ class ScriptRunner:
                 or agent_active_ms >= step.min_agent_active_ms
             )
             inject_error: str | None = None
+            hold_silence_ms = int(step.silence_after_cue_ms or 0)
             if step.action == "wait":
                 kind = "sim.script.wait"
+                # User long-silence: suppress persona TTS, pause dead_call, hold duration.
+                if hold_silence_ms > 0:
+                    if hasattr(self.bridge, "begin_scripted_user_silence"):
+                        self.bridge.begin_scripted_user_silence(hold_silence_ms)
+                    else:
+                        self.bridge.suppress_persona_output(hold_silence_ms)
+                    await asyncio.sleep(hold_silence_ms / 1000.0)
             else:
                 kind = "sim.script.cue"
                 try:
@@ -172,8 +180,8 @@ class ScriptRunner:
                         source="sim.script",
                         include_dialogue=False,
                     )
-                if step.silence_after_cue_ms > 0 and inject_error is None:
-                    self.bridge.suppress_persona_output(step.silence_after_cue_ms)
+                if hold_silence_ms > 0 and inject_error is None:
+                    self.bridge.suppress_persona_output(hold_silence_ms)
             self.writer.emit(
                 kind,
                 spec={
@@ -184,6 +192,7 @@ class ScriptRunner:
                     "action": step.action,
                     "barge_in": step.barge_in,
                     "waited_ms": waited_ms,
+                    "hold_silence_ms": hold_silence_ms if step.action == "wait" else 0,
                     "agent_active": self.observer.agent_is_active_speaker,
                     "agent_active_ms": agent_active_ms,
                     "during_agent_speech": during_agent_speech,
