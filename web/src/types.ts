@@ -15,6 +15,9 @@ export type MarkerType =
   | "recovery"
   | string;
 
+/** Where user-channel speech came from (script barge vs natural persona). */
+export type SpeechOrigin = "natural" | "script_barge" | "script_cue" | string;
+
 export type Cue = {
   role: "agent" | "user" | string;
   start_ms: number;
@@ -23,6 +26,16 @@ export type Cue = {
   turn?: number;
   source?: string;
   marker_tags?: MarkerType[];
+  /** Audio-aligned end of utterance (transcript final). */
+  final_ms?: number;
+  /**
+   * user role only: script_barge = Script barge_in inject heard on mic;
+   * natural = Gemini persona / real caller intent.
+   */
+  speech_origin?: SpeechOrigin;
+  script_step_id?: string;
+  script_say?: string;
+  script_label?: string;
 };
 
 export type Marker = {

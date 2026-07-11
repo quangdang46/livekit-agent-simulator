@@ -109,16 +109,22 @@ type PlayerUI = {
 };
 
 /** Role labels shown in the chat timeline (sim caller = user channel). */
-function roleLabel(role: string): string {
+function roleLabel(role: string, origin?: string | null): string {
   const r = role.toLowerCase();
   if (r === "agent") return "Agent";
-  if (r === "user") return "Caller";
+  if (r === "user") {
+    if (origin === "script_barge") return "Script barge";
+    if (origin === "script_cue") return "Script cue";
+    return "Caller";
+  }
   return role;
 }
 
-function roleClass(role: string): string {
+function roleClass(role: string, origin?: string | null): string {
   const r = role.toLowerCase();
   if (r === "agent") return "role-agent";
+  if (r === "user" && origin === "script_barge") return "role-script-barge";
+  if (r === "user" && origin === "script_cue") return "role-script-cue";
   if (r === "user") return "role-user";
   return "role-other";
 }
@@ -143,8 +149,9 @@ function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
           </div>
           <div class="dock-row">
             <div class="role-key" aria-label="Speaker legend">
-              <span class="role-key-item"><span class="role-dot agent"></span> Agent (right channel)</span>
-              <span class="role-key-item"><span class="role-dot user"></span> Caller / sim (left channel)</span>
+              <span class="role-key-item"><span class="role-dot agent"></span> Agent</span>
+              <span class="role-key-item"><span class="role-dot user"></span> Caller (persona)</span>
+              <span class="role-key-item"><span class="role-dot script-barge"></span> Script barge (inject)</span>
             </div>
             <button type="button" class="follow-btn on" id="follow" title="When on, transcript keeps the current line in view. Scroll freely turns this off.">
               Follow live
@@ -157,7 +164,7 @@ function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
       <section class="transcript-panel">
         <div class="section-head">
           <h2 class="section-title">Conversation</h2>
-          <span class="section-hint">Agent left · Caller right · Events centered</span>
+          <span class="section-hint">Agent left · Caller right · Script barge amber · Events centered</span>
         </div>
         <ol id="cues" class="cues"></ol>
       </section>
@@ -421,30 +428,51 @@ function mountTimelineList(
     } else {
       const c = item.cue;
       const r = (c.role || "other").toLowerCase();
-      li.className = `cue ${roleClass(r)}`;
+      const origin = c.speech_origin || "natural";
+      li.className = `cue ${roleClass(r, origin)}`;
       li.dataset.role = r;
+      li.dataset.origin = origin;
       li.innerHTML = `
         <div class="cue-meta">
-          <span class="role ${r}"></span>
+          <span class="role ${r} origin-${origin}"></span>
           <span class="time"></span>
           <span class="tags"></span>
         </div>
         <div class="cue-text"></div>
+        <div class="cue-detail script-origin hidden"></div>
       `;
       const role = li.querySelector(".role");
       const time = li.querySelector(".time");
       const text = li.querySelector(".cue-text");
       const tags = li.querySelector(".tags");
-      if (role) role.textContent = roleLabel(c.role);
+      const detail = li.querySelector(".cue-detail.script-origin");
+      if (role) role.textContent = roleLabel(c.role, origin);
       if (time) time.textContent = `${fmtMs(c.start_ms)} – ${fmtMs(c.end_ms)}`;
       if (text) text.textContent = c.text;
-      if (tags && c.marker_tags?.length) {
-        for (const t of c.marker_tags) {
-          const span = document.createElement("span");
-          span.className = `tag ${t}`;
-          span.textContent = markerTitle(t);
-          tags.appendChild(span);
+      if (tags) {
+        if (origin === "script_barge" || origin === "script_cue") {
+          const badge = document.createElement("span");
+          badge.className = `tag ${origin === "script_barge" ? "script_barge" : "script_cue"}`;
+          badge.textContent = origin === "script_barge" ? "script inject" : "script";
+          tags.appendChild(badge);
         }
+        if (c.marker_tags?.length) {
+          for (const t of c.marker_tags) {
+            const span = document.createElement("span");
+            span.className = `tag ${t}`;
+            span.textContent = markerTitle(t);
+            tags.appendChild(span);
+          }
+        }
+      }
+      if (detail && (origin === "script_barge" || origin === "script_cue")) {
+        const bits = [
+          c.script_step_id ? `step ${c.script_step_id}` : null,
+          c.script_say ? `script: “${c.script_say}”` : null,
+          "not natural caller speech — Script barge/inject",
+        ].filter(Boolean);
+        detail.textContent = bits.join(" · ");
+        detail.classList.remove("hidden");
       }
     }
 

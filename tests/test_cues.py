@@ -44,6 +44,17 @@ def _write_report(tmp: Path, *, with_markers: bool = False) -> Path:
                 },
             },
         )
+        # STT of the script barge (same channel as user — must not look like natural caller)
+        events.insert(
+            3,
+            {
+                "kind": "transcript.user.final",
+                "ts_mono_ms": 5600,
+                "turn": 1,
+                "source": "lk.transcription",
+                "spec": {"text": "uh-huh", "final": True},
+            },
+        )
         events.append(
             {
                 "kind": "sim.script.wait",
@@ -208,6 +219,19 @@ def test_build_markers_barge_silence_recovery(tmp_path: Path) -> None:
     agent0 = payload["cues"][0]
     assert agent0["role"] == "agent"
     assert "barge_in" in (agent0.get("marker_tags") or [])
+
+    # Script barge transcript is classified separately from natural caller speech
+    barge_speech = next(
+        c for c in payload["cues"] if c.get("text") == "uh-huh" and c.get("role") == "user"
+    )
+    assert barge_speech["speech_origin"] == "script_barge"
+    assert barge_speech.get("script_step_id") == "soft-barge"
+    natural = next(
+        c
+        for c in payload["cues"]
+        if c.get("role") == "user" and "support" in (c.get("text") or "")
+    )
+    assert natural.get("speech_origin", "natural") == "natural"
 
 
 def test_write_cues_json(tmp_path: Path) -> None:

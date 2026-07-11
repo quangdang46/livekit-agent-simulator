@@ -11,6 +11,10 @@
   --user: #5eead4;
   --user-bg: color-mix(in srgb, #14b8a6 14%, var(--panel));
   --user-border: color-mix(in srgb, #14b8a6 45%, var(--border));
+  /* Script barge inject (not natural caller) — amber / coral for debug */
+  --script-barge: #fb923c;
+  --script-barge-bg: color-mix(in srgb, #ea580c 18%, var(--panel));
+  --script-barge-border: color-mix(in srgb, #fb923c 55%, var(--border));
   --active: #fbbf24;
   --border: #2a3140;
   --warn: #f87171;
@@ -43,6 +47,9 @@
     --user: #0f766e;
     --user-bg: #f0fdfa;
     --user-border: #5eead4;
+    --script-barge: #c2410c;
+    --script-barge-bg: #fff7ed;
+    --script-barge-border: #fdba74;
     --active: #d97706;
     --border: #e5e7eb;
     --warn: #dc2626;
@@ -184,6 +191,9 @@ audio {
 }
 .role-dot.user {
   background: var(--user);
+}
+.role-dot.script-barge {
+  background: var(--script-barge);
 }
 
 .follow-btn {
@@ -423,6 +433,26 @@ audio {
   border-right: 3px solid var(--user);
 }
 
+/* Script barge / inject — right side but amber, dashed, easy to not confuse with Caller */
+.cue.role-script-barge,
+.cue.role-script-cue {
+  align-self: flex-end;
+  background: var(--script-barge-bg);
+  border-color: var(--script-barge-border);
+  border-style: dashed;
+  border-width: 2px;
+  border-right: 4px solid var(--script-barge);
+  max-width: min(92%, 36rem);
+}
+
+.cue.role-script-barge .role,
+.cue.role-script-cue .role,
+.role.user.origin-script_barge,
+.role.user.origin-script_cue {
+  color: var(--script-barge);
+  text-transform: none;
+}
+
 .cue.role-other {
   align-self: stretch;
   max-width: 100%;
@@ -458,6 +488,17 @@ audio {
   outline-color: color-mix(in srgb, var(--user) 50%, transparent);
 }
 
+.cue.role-script-barge.active,
+.cue.role-script-cue.active {
+  background: color-mix(in srgb, var(--script-barge) 28%, var(--script-barge-bg));
+  border-color: var(--script-barge);
+  border-style: dashed;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--script-barge) 75%, transparent),
+    0 6px 22px color-mix(in srgb, var(--script-barge) 28%, transparent);
+  outline-color: color-mix(in srgb, var(--script-barge) 55%, transparent);
+}
+
 .now-badge {
   position: absolute;
   top: -0.45rem;
@@ -485,6 +526,12 @@ audio {
 .cue.role-user .now-badge {
   background: var(--user);
   color: #042f2e;
+}
+
+.cue.role-script-barge .now-badge,
+.cue.role-script-cue .now-badge {
+  background: var(--script-barge);
+  color: #1c0a00;
 }
 
 .cue.marker .now-badge {
@@ -661,6 +708,11 @@ audio {
 .tag.recovery {
   color: var(--mk-recovery);
   border-color: color-mix(in srgb, var(--mk-recovery) 50%, var(--border));
+}
+.tag.script_barge {
+  color: var(--script-barge);
+  border-color: color-mix(in srgb, var(--script-barge) 55%, var(--border));
+  background: color-mix(in srgb, var(--script-barge) 12%, transparent);
 }
 
 .cue-text {

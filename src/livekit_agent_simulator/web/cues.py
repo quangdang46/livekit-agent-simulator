@@ -303,6 +303,7 @@ def _build_transcript_cues(
     finals = [int(c["start_ms"]) for c in cues]
     for i, c in enumerate(cues):
         final_ms = finals[i]
+        c["final_ms"] = final_ms
         if i == 0:
             start = 0
         else:
@@ -321,26 +322,105 @@ def _build_transcript_cues(
     return cues
 
 
+def _norm_speech(s: str) -> str:
+    return " ".join("".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in s).split())
+
+
+def _text_overlap(a: str, b: str) -> bool:
+    """Loose match: substring or shared content words (script say ↔ STT)."""
+    na, nb = _norm_speech(a), _norm_speech(b)
+    if not na or not nb:
+        return False
+    if na in nb or nb in na:
+        return True
+    wa = {w for w in na.split() if len(w) >= 3}
+    wb = {w for w in nb.split() if len(w) >= 3}
+    if not wa or not wb:
+        return False
+    return len(wa & wb) >= 1
+
+
 def _tag_cues_with_markers(
     cues: list[dict[str, Any]], markers: list[dict[str, Any]]
 ) -> None:
-    """Attach nearby marker types onto transcript cues for UI badges."""
+    """Attach nearby marker types + classify script barge speech vs natural caller."""
+    barge_markers = [
+        m
+        for m in markers
+        if m.get("type") == MARKER_BARGE_IN or m.get("barge_in")
+    ]
+    script_markers = [
+        m for m in markers if m.get("type") in (MARKER_BARGE_IN, MARKER_SCRIPT_CUE)
+    ]
+
     for c in cues:
         tags: list[str] = []
         start = int(c["start_ms"])
         end = int(c.get("end_ms") or start)
+        final_ms = int(c.get("final_ms") if c.get("final_ms") is not None else end)
         for m in markers:
             mtype = str(m["type"])
             ms = int(m["start_ms"])
             me = int(m.get("end_ms") or ms)
-            # Overlap or within 1.2s of cue start
-            near = abs(ms - start) <= 1200 or (ms <= end and me >= start)
+            # Prefer proximity to final (when STT closed) or speech window overlap.
+            near = (
+                abs(ms - final_ms) <= 3500
+                or abs(ms - start) <= 1200
+                or (ms <= end and me >= start)
+            )
             if not near:
                 continue
             if mtype not in tags:
                 tags.append(mtype)
         if tags:
             c["marker_tags"] = tags
+
+        # User channel audio that is really a Script barge/inject — not persona chat.
+        if str(c.get("role")) != "user":
+            c["speech_origin"] = "natural"
+            continue
+
+        text = str(c.get("text") or "")
+        origin = "natural"
+        matched: dict[str, Any] | None = None
+        best_score = -1
+
+        for m in script_markers:
+            ms = int(m["start_ms"])
+            say = str(m.get("say") or "")
+            is_barge = bool(m.get("barge_in") or m.get("type") == MARKER_BARGE_IN)
+            delta = abs(final_ms - ms)
+            if delta > 5000:
+                continue
+            score = 0
+            if _text_overlap(text, say):
+                score += 50
+            if is_barge:
+                score += 20
+            # Closer in time → higher score
+            score += max(0, 30 - delta // 150)
+            if score > best_score and (score >= 40 or (is_barge and delta <= 2800)):
+                best_score = score
+                matched = m
+                origin = "script_barge" if is_barge else "script_cue"
+
+        # Fallback: any barge marker very close even if STT mangled the words.
+        if origin == "natural":
+            for m in barge_markers:
+                ms = int(m["start_ms"])
+                if abs(final_ms - ms) <= 2200:
+                    matched = m
+                    origin = "script_barge"
+                    break
+
+        c["speech_origin"] = origin
+        if matched is not None:
+            if matched.get("step_id"):
+                c["script_step_id"] = matched.get("step_id")
+            if matched.get("say"):
+                c["script_say"] = matched.get("say")
+            if matched.get("label"):
+                c["script_label"] = matched.get("label")
 
 
 def build_cues_payload(report_dir: Path) -> dict[str, Any]:
