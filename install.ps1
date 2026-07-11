@@ -90,6 +90,67 @@ function Resolve-Uv {
     return $null
 }
 
+function Get-WindowsUvZipName {
+    # Match astral-sh/uv release asset names.
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    switch -Regex ($arch) {
+        '^(ARM64|arm64)$' { return "uv-aarch64-pc-windows-msvc.zip" }
+        '^(AMD64|x86_64|x64)$' { return "uv-x86_64-pc-windows-msvc.zip" }
+        '^(x86|X86)$' { return "uv-i686-pc-windows-msvc.zip" }
+        default {
+            if ([Environment]::Is64BitOperatingSystem) { return "uv-x86_64-pc-windows-msvc.zip" }
+            return "uv-i686-pc-windows-msvc.zip"
+        }
+    }
+}
+
+function Install-UvBinaryDirect {
+    # No PowerShell execution-policy dependency: download official uv zip and place uv.exe.
+    $destDir = Join-Path $env:USERPROFILE ".local\bin"
+    if (-not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+    $zipName = Get-WindowsUvZipName
+    $url = "https://github.com/astral-sh/uv/releases/latest/download/$zipName"
+    $work = Join-Path $env:TEMP ("uv-bootstrap-" + [guid]::NewGuid().ToString("n"))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $zip = Join-Path $work $zipName
+    Write-Log "Downloading uv binary: $url"
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+        Expand-Archive -Path $zip -DestinationPath $work -Force
+        $exe = Get-ChildItem -Path $work -Recurse -Filter "uv.exe" | Select-Object -First 1
+        if (-not $exe) { throw "uv.exe not found in $zipName" }
+        $target = Join-Path $destDir "uv.exe"
+        Copy-Item -Path $exe.FullName -Destination $target -Force
+        # Companion binaries if present (optional)
+        Get-ChildItem -Path $work -Recurse -Filter "uvx.exe" -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName (Join-Path $destDir $_.Name) -Force }
+        Write-Log "Installed uv.exe → $target"
+        return $target
+    } finally {
+        try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
+    }
+}
+
+function Install-UvViaOfficialScript {
+    # Astral docs: must use Bypass/RemoteSigned. Nested process so machine policy
+    # Restricted does not block the official install.ps1.
+    # https://docs.astral.sh/uv/getting-started/installation/
+    Write-Log "Running official uv installer with -ExecutionPolicy Bypass"
+    $cmd = "irm '$UvInstallUrl' | iex"
+    $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path $psExe)) { $psExe = "powershell.exe" }
+
+    $p = Start-Process -FilePath $psExe -ArgumentList @(
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy", "Bypass",
+        "-Command", $cmd
+    ) -Wait -PassThru -NoNewWindow
+    return ($p.ExitCode -eq 0)
+}
+
 function Ensure-Uv {
     $uv = Resolve-Uv
     if ($uv) {
@@ -97,24 +158,34 @@ function Ensure-Uv {
         return $uv
     }
 
-    Write-Log "uv not found — bootstrapping from $UvInstallUrl"
-    # Official Astral installer (no Python required).
+    Write-Log "uv not found — bootstrapping (no manual install needed)"
+
+    # 1) Official installer under Bypass (handles PATH + shell integration).
     try {
-        $uvScript = Invoke-RestMethod -Uri $UvInstallUrl -UseBasicParsing
+        [void](Install-UvViaOfficialScript)
     } catch {
-        throw "Failed to download uv installer from $UvInstallUrl : $_"
-    }
-    try {
-        # Run in current process so PATH mutations (if any) apply.
-        & ([scriptblock]::Create($uvScript))
-    } catch {
-        throw "uv bootstrap failed: $_"
+        Write-Log "Official uv installer failed: $_" "WARN"
     }
 
     Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
     Ensure-DirOnPath (Join-Path $env:USERPROFILE ".cargo\bin")
     Refresh-CommandPath
+    $uv = Resolve-Uv
+    if ($uv) {
+        Write-Log "Bootstrapped uv: $uv"
+        return $uv
+    }
 
+    # 2) Direct binary download — ignores execution policy entirely.
+    Write-Log "Falling back to direct uv.exe download from GitHub Releases"
+    try {
+        $uv = Install-UvBinaryDirect
+    } catch {
+        throw "uv bootstrap failed (script + binary): $_  Install manually: https://docs.astral.sh/uv/getting-started/installation/"
+    }
+
+    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
+    Refresh-CommandPath
     $uv = Resolve-Uv
     if (-not $uv) {
         throw "uv installed but not found on PATH. Open a new PowerShell and re-run, or add %USERPROFILE%\.local\bin to PATH."
