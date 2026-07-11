@@ -1,4 +1,5 @@
-# Install livekit-agent-simulator from GitHub (git + uv/pipx). No PyPI / wheel.
+# Install livekit-agent-simulator from GitHub. Zero prereqs:
+# bootstraps uv if missing, downloads source, installs CLI + MCP.
 #
 #   irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
 #
@@ -14,7 +15,7 @@ param(
     [switch]$Verify,
     [switch]$Uninstall,
     [switch]$Quiet,
-    # Accepted for back-compat with earlier installers; install is always from git.
+    # Accepted for back-compat with earlier installers; install is always from git/source.
     [switch]$FromGit
 )
 
@@ -24,6 +25,7 @@ $McpServerName = "livekit-agent-simulator"
 $PkgName = "livekit-agent-simulator"
 $Owner = "quangdang46"
 $Repo = "livekit-agent-simulator"
+$UvInstallUrl = "https://astral.sh/uv/install.ps1"
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -32,6 +34,92 @@ function Write-Log {
     if ($Level -eq "WARN") { Write-Host "$prefix WARN: $Message" -ForegroundColor Yellow }
     elseif ($Level -eq "ERROR") { Write-Host "$prefix ERROR: $Message" -ForegroundColor Red }
     else { Write-Host "$prefix $Message" }
+}
+
+function Ensure-DirOnPath {
+    param([string]$Dir)
+    if (-not $Dir) { return }
+    if (-not (Test-Path $Dir)) {
+        New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+    }
+    # Current session
+    $parts = $env:PATH -split ';' | Where-Object { $_ -and ($_ -ne $Dir) }
+    $env:PATH = (@($Dir) + $parts) -join ';'
+    # Persist for new shells (user PATH)
+    try {
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if (-not $userPath) { $userPath = "" }
+        if (($userPath -split ';') -notcontains $Dir) {
+            $newUser = if ($userPath.Trim()) { "$Dir;$userPath" } else { $Dir }
+            [Environment]::SetEnvironmentVariable("Path", $newUser, "User")
+            Write-Log "PATH += $Dir (user)"
+        }
+    } catch {
+        Write-Log "Could not persist PATH entry for $Dir : $_" "WARN"
+    }
+}
+
+function Refresh-CommandPath {
+    # Drop cached command lookups so newly installed bins are found.
+    $names = @("uv", "pipx", $BinaryName, "lk-sim-mcp")
+    foreach ($n in $names) {
+        if (Get-Command $n -ErrorAction SilentlyContinue) {
+            # no-op: Get-Command with full re-resolve below after PATH change
+        }
+    }
+    $env:PATH = $env:PATH
+}
+
+function Get-UvCandidates {
+    @(
+        (Join-Path $env:USERPROFILE ".local\bin\uv.exe"),
+        (Join-Path $env:USERPROFILE ".local\bin\uv"),
+        (Join-Path $env:USERPROFILE ".cargo\bin\uv.exe"),
+        (Join-Path $env:LOCALAPPDATA "uv\uv.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe")
+    )
+}
+
+function Resolve-Uv {
+    $cmd = Get-Command uv -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($c in (Get-UvCandidates)) {
+        if (Test-Path $c) { return $c }
+    }
+    return $null
+}
+
+function Ensure-Uv {
+    $uv = Resolve-Uv
+    if ($uv) {
+        Write-Log "Using uv: $uv"
+        return $uv
+    }
+
+    Write-Log "uv not found — bootstrapping from $UvInstallUrl"
+    # Official Astral installer (no Python required).
+    try {
+        $uvScript = Invoke-RestMethod -Uri $UvInstallUrl -UseBasicParsing
+    } catch {
+        throw "Failed to download uv installer from $UvInstallUrl : $_"
+    }
+    try {
+        # Run in current process so PATH mutations (if any) apply.
+        & ([scriptblock]::Create($uvScript))
+    } catch {
+        throw "uv bootstrap failed: $_"
+    }
+
+    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
+    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".cargo\bin")
+    Refresh-CommandPath
+
+    $uv = Resolve-Uv
+    if (-not $uv) {
+        throw "uv installed but not found on PATH. Open a new PowerShell and re-run, or add %USERPROFILE%\.local\bin to PATH."
+    }
+    Write-Log "Bootstrapped uv: $uv"
+    return $uv
 }
 
 function Merge-JsonIntoFile {
@@ -109,6 +197,8 @@ function Resolve-LkSim {
     $candidates = @(
         (Join-Path $env:USERPROFILE ".local\bin\$BinaryName.exe"),
         (Join-Path $env:USERPROFILE ".local\bin\$BinaryName"),
+        (Join-Path $env:LOCALAPPDATA "uv\tools\$PkgName\bin\$BinaryName.exe"),
+        (Join-Path $env:USERPROFILE ".local\share\uv\tools\$PkgName\bin\$BinaryName.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\Python\Scripts\$BinaryName.exe")
     )
     foreach ($c in $candidates) {
@@ -178,8 +268,9 @@ args = ["mcp"]
 
 function Uninstall-All {
     Write-Log "Uninstalling $PkgName..."
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        try { uv tool uninstall $PkgName 2>$null } catch {}
+    $uv = Resolve-Uv
+    if ($uv) {
+        try { & $uv tool uninstall $PkgName 2>$null } catch {}
     }
     if (Get-Command pipx -ErrorAction SilentlyContinue) {
         try { pipx uninstall $PkgName 2>$null } catch {}
@@ -193,25 +284,82 @@ function Uninstall-All {
     Write-Log "Uninstalled $PkgName"
 }
 
-function Install-Package {
-    $hasUv = [bool](Get-Command uv -ErrorAction SilentlyContinue)
-    $hasPipx = [bool](Get-Command pipx -ErrorAction SilentlyContinue)
-    if (-not $hasUv -and -not $hasPipx) {
-        throw "Need uv or pipx. Install uv: https://docs.astral.sh/uv/getting-started/installation/"
+function Install-FromArchive {
+    param([string]$UvPath)
+
+    $work = Join-Path $env:TEMP ("lk-sim-install-" + [guid]::NewGuid().ToString("n"))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $zip = Join-Path $work "src.zip"
+    $urls = @(
+        "https://github.com/$Owner/$Repo/archive/refs/tags/$GitRef.zip",
+        "https://github.com/$Owner/$Repo/archive/refs/heads/$GitRef.zip"
+    )
+
+    $downloaded = $false
+    foreach ($url in $urls) {
+        Write-Log "Downloading source: $url"
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+            if ((Test-Path $zip) -and ((Get-Item $zip).Length -gt 0)) {
+                $downloaded = $true
+                break
+            }
+        } catch {
+            Write-Log "Not available: $url ($($_.Exception.Message))" "WARN"
+        }
+    }
+    if (-not $downloaded) {
+        throw "Could not download source for ref '$GitRef' (tried tags + branches)."
     }
 
+    Write-Log "Extracting source archive..."
+    Expand-Archive -Path $zip -DestinationPath $work -Force
+    $src = Get-ChildItem -Path $work -Directory | Where-Object {
+        $_.Name -like "$Repo-*" -or $_.Name -eq $Repo
+    } | Select-Object -First 1
+    if (-not $src) {
+        throw "Source tree not found after extract under $work"
+    }
+    if (-not (Test-Path (Join-Path $src.FullName "pyproject.toml"))) {
+        throw "pyproject.toml missing in $($src.FullName)"
+    }
+
+    Write-Log "uv tool install --force $($src.FullName)"
+    & $UvPath tool install --force $src.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "uv tool install failed (exit $LASTEXITCODE)"
+    }
+
+    try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
+}
+
+function Install-FromGitSpec {
+    param([string]$UvPath)
     $spec = "git+https://github.com/$Owner/$Repo.git@$GitRef"
-    Write-Log "Source: $spec (git only — no PyPI)"
-
-    if ($hasUv) {
-        Write-Log "uv tool install --force $spec"
-        & uv tool install --force $spec
-        if ($LASTEXITCODE -ne 0) { throw "uv tool install failed" }
-    } else {
-        Write-Log "pipx install --force $spec"
-        & pipx install --force $spec
-        if ($LASTEXITCODE -ne 0) { throw "pipx install failed" }
+    Write-Log "Source: $spec"
+    & $UvPath tool install --force $spec
+    if ($LASTEXITCODE -ne 0) {
+        throw "uv tool install (git) failed (exit $LASTEXITCODE)"
     }
+}
+
+function Install-Package {
+    $uv = Ensure-Uv
+    Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
+
+    $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
+    if ($hasGit) {
+        try {
+            Install-FromGitSpec -UvPath $uv
+            return
+        } catch {
+            Write-Log "git-based install failed; falling back to source archive: $_" "WARN"
+        }
+    } else {
+        Write-Log "git not on PATH — installing from GitHub source archive (no Git required)"
+    }
+
+    Install-FromArchive -UvPath $uv
 }
 
 if ($Uninstall) {
@@ -220,7 +368,12 @@ if ($Uninstall) {
 }
 
 Write-Log "Installing $PkgName (CLI $BinaryName | MCP: $BinaryName mcp)"
+Write-Log "Ref: $GitRef — will bootstrap uv if needed (no manual pipx/uv install)"
 Install-Package
+
+# uv tools land in ~/.local/bin on Windows
+Ensure-DirOnPath (Join-Path $env:USERPROFILE ".local\bin")
+Refresh-CommandPath
 
 if (-not $NoMcp) {
     Configure-AllMcpProviders
@@ -228,19 +381,21 @@ if (-not $NoMcp) {
     Write-Log "Skipped MCP auto-config (-NoMcp)"
 }
 
+$lkResolved = Resolve-LkSim
 if ($Verify) {
-    $lk = Get-Command $BinaryName -ErrorAction SilentlyContinue
-    if (-not $lk) { throw "$BinaryName not on PATH after install" }
-    & $BinaryName --help | Out-Null
+    if (-not $lkResolved) { throw "$BinaryName not found after install (check PATH / open new PowerShell)" }
+    & $lkResolved --help | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "$BinaryName --help failed" }
     Write-Log "Verified $BinaryName --help"
 }
 
 Write-Host ""
 Write-Host "✓ $PkgName installed" -ForegroundColor Green
-$lkCmd = Get-Command $BinaryName -ErrorAction SilentlyContinue
-if ($lkCmd) {
-    Write-Host "  CLI: $($lkCmd.Source)"
-    Write-Host "  MCP: $($lkCmd.Source) mcp"
+if ($lkResolved) {
+    Write-Host "  CLI: $lkResolved"
+    Write-Host "  MCP: $lkResolved mcp"
+} else {
+    Write-Host "  CLI: $BinaryName  (open a new PowerShell if command not found)"
 }
 Write-Host ""
 Write-Host "  Quick start:"
@@ -250,4 +405,5 @@ Write-Host "    $BinaryName web --root C:\path\to\target"
 Write-Host "    $BinaryName mcp"
 Write-Host ""
 Write-Host "  Report player is prebuilt in the git tree (no Node/pnpm required)."
+Write-Host "  If '$BinaryName' is not found, open a new PowerShell (PATH refresh)."
 Write-Host ""

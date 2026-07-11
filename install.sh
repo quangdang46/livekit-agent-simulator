@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Install livekit-agent-simulator from GitHub (git + uv/pipx). No PyPI / wheel.
+# Install livekit-agent-simulator from GitHub. Zero prereqs:
+# bootstraps uv if missing, installs from git or source archive. No PyPI / wheel.
 #
 #   curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 #
@@ -48,7 +49,7 @@ acquire_lock() {
 
 usage() {
   cat <<EOF
-Install ${PKG_NAME} from GitHub (uv tool / pipx). No PyPI.
+Install ${PKG_NAME} from GitHub (auto-bootstraps uv). No PyPI.
 
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --ref v0.1.0 --verify
@@ -56,6 +57,8 @@ Install ${PKG_NAME} from GitHub (uv tool / pipx). No PyPI.
   curl -fsSL "https://raw.githubusercontent.com/${OWNER}/${REPO}/main/install.sh?\$(date +%s)" | bash -s -- --uninstall
 
 CLI: ${BINARY_NAME}   |   MCP: ${BINARY_NAME} mcp
+
+Bootstraps uv if missing. Uses git when available, else GitHub zip archive.
 
 Options:
   --version / --ref REF   git tag or branch (default: main)
@@ -352,34 +355,75 @@ do_uninstall() {
   exit 0
 }
 
+# Bootstrap uv if missing (official Astral installer — no Python required).
+ensure_uv() {
+  export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
+  if command -v uv >/dev/null 2>&1; then
+    log_info "Using uv: $(command -v uv)"
+    return 0
+  fi
+  log_info "uv not found — bootstrapping from https://astral.sh/uv/install.sh"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
+  command -v uv >/dev/null 2>&1 || die "uv bootstrap failed — see https://docs.astral.sh/uv/getting-started/installation/"
+  log_info "Bootstrapped uv: $(command -v uv)"
+}
+
+# Install from GitHub source zip (no git required). Tries tag then branch.
+install_from_archive() {
+  local work zip url src
+  work="$(mktemp -d "${TMPDIR:-/tmp}/lk-sim-install.XXXXXX")"
+  zip="${work}/src.zip"
+  for url in \
+    "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${GIT_REF}.zip" \
+    "https://github.com/${OWNER}/${REPO}/archive/refs/heads/${GIT_REF}.zip"
+  do
+    log_info "Downloading source: $url"
+    if curl -fsSL "$url" -o "$zip" && [ -s "$zip" ]; then
+      break
+    fi
+    rm -f "$zip"
+    log_warn "Not available: $url"
+  done
+  [ -s "$zip" ] || die "Could not download source for ref '${GIT_REF}' (tried tags + branches)"
+  log_info "Extracting source archive..."
+  unzip -q "$zip" -d "$work" || die "unzip failed (install unzip or use git)"
+  src="$(find "$work" -mindepth 1 -maxdepth 1 -type d \( -name "${REPO}-*" -o -name "${REPO}" \) | head -1)"
+  [ -n "$src" ] && [ -f "${src}/pyproject.toml" ] || die "Source tree / pyproject.toml missing after extract"
+  log_info "uv tool install --force ${src}"
+  uv tool install --force "$src"
+  rm -rf "$work"
+}
+
+install_package() {
+  ensure_uv
+  local spec="git+https://github.com/${OWNER}/${REPO}.git@${GIT_REF}"
+  if command -v git >/dev/null 2>&1; then
+    log_info "Source: $spec"
+    if uv tool install --force "$spec"; then
+      return 0
+    fi
+    log_warn "git-based install failed; falling back to source archive"
+  else
+    log_info "git not on PATH — installing from GitHub source archive (no Git required)"
+  fi
+  install_from_archive
+}
+
 [ "$UNINSTALL" -eq 1 ] && do_uninstall
 
 main() {
   acquire_lock
   mkdir -p "$DEST"
 
-  log_info "Installing ${PKG_NAME} from git@${GIT_REF} (no PyPI)"
+  log_info "Installing ${PKG_NAME} (ref ${GIT_REF}; no PyPI)"
   log_info "CLI: ${BINARY_NAME}  |  MCP: ${BINARY_NAME} mcp"
   log_info "Dest PATH hint: $DEST"
+  log_info "Will bootstrap uv if needed (no manual pipx/uv install)"
 
-  local installer=""
-  if command -v uv >/dev/null 2>&1; then
-    installer="uv"
-  elif command -v pipx >/dev/null 2>&1; then
-    installer="pipx"
-  else
-    die "Need uv or pipx. Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
-  fi
+  install_package
 
-  local spec="git+https://github.com/${OWNER}/${REPO}.git@${GIT_REF}"
-  log_info "Source: $spec"
-
-  if [ "$installer" = "uv" ]; then
-    uv tool install --force "$spec"
-  else
-    pipx install --force "$spec"
-  fi
-
+  export PATH="${DEST}:${HOME}/.local/bin:${PATH}"
   maybe_add_path
 
   if [ "$NO_MCP" -eq 0 ]; then
@@ -389,8 +433,10 @@ main() {
   fi
 
   if [ "$VERIFY" -eq 1 ]; then
-    command -v "$BINARY_NAME" >/dev/null 2>&1 || die "${BINARY_NAME} not on PATH after install"
-    "$BINARY_NAME" --help >/dev/null
+    local lk
+    lk="$(resolve_lk_sim 2>/dev/null || true)"
+    [ -n "$lk" ] || die "${BINARY_NAME} not on PATH after install"
+    "$lk" --help >/dev/null
     log_success "Verified ${BINARY_NAME} --help"
   fi
 
@@ -398,6 +444,8 @@ main() {
   log_success "${PKG_NAME} installed"
   if command -v "$BINARY_NAME" >/dev/null 2>&1; then
     echo "  CLI:  $(command -v "$BINARY_NAME")"
+  elif lkb=$(resolve_lk_sim 2>/dev/null); then
+    echo "  CLI:  $lkb"
   fi
   if lkb=$(resolve_lk_sim 2>/dev/null); then
     echo "  MCP:  $lkb mcp"

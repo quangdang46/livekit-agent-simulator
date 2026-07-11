@@ -26,7 +26,9 @@ paths — use `execute_*` to validate then run.
 
 ## Install (user machine)
 
-Requires [uv](https://docs.astral.sh/uv/) (recommended) or [pipx](https://pipx.pypa.io/).
+**One command — no manual uv/pipx/git setup.** The installer bootstraps
+[uv](https://docs.astral.sh/uv/) if needed, then installs `lk-sim` from this repo
+(git or GitHub source archive).
 
 ```bash
 # macOS / Linux
@@ -43,7 +45,7 @@ lk-sim guide
 lk-sim web --root /path/to/target   # no Node — report player is prebuilt into the package
 ```
 
-Installer options (Unix) — **git only** (no PyPI / wheel):
+Installer options (Unix) — auto-bootstraps uv; no PyPI / wheel:
 
 ```bash
 # pin to a tag
@@ -56,7 +58,7 @@ curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulato
 curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --uninstall
 ```
 
-Windows PowerShell (full examples):
+Windows PowerShell (full examples) — same zero-prereq path (bootstraps uv):
 
 ```powershell
 # default = main
