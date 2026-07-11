@@ -367,6 +367,18 @@ def build_cues_payload(report_dir: Path) -> dict[str, Any]:
                 assert_verify = e["spec"]
                 break
 
+    caller = summary.get("caller") if isinstance(summary, dict) else None
+    behavior_summary = None
+    if isinstance(caller, dict) and isinstance(caller.get("behavior_summary"), dict):
+        behavior_summary = caller["behavior_summary"]
+    elif isinstance(summary, dict) and isinstance(summary.get("behavior_summary"), dict):
+        behavior_summary = summary["behavior_summary"]
+    if behavior_summary is None and events:
+        # Older reports / live API without summary field — recompute from events.
+        from ..script_runner import build_caller_behavior_summary
+
+        behavior_summary = build_caller_behavior_summary(events)
+
     counts: dict[str, int] = {}
     for m in markers:
         t = str(m["type"])
@@ -386,6 +398,8 @@ def build_cues_payload(report_dir: Path) -> dict[str, Any]:
         "marker_counts": counts,
         "script_verify": script_verify,
         "assert_verify": assert_verify,
+        "caller": {"behavior_summary": behavior_summary} if behavior_summary is not None else None,
+        "behavior_summary": behavior_summary,
     }
 
 

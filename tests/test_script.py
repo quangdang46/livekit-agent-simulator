@@ -101,6 +101,43 @@ def test_evaluate_silence_wait_and_agent_resume():
     assert result["agent_finals_after_silence"] == 1
 
 
+def test_build_caller_behavior_summary():
+    from livekit_agent_simulator.script_runner import build_caller_behavior_summary
+
+    events = [
+        {
+            "kind": "sim.script.cue",
+            "ts_mono_ms": 1000,
+            "spec": {
+                "barge_in": True,
+                "during_agent_speech": True,
+                "asset": "builtin:voice.barge_short",
+            },
+        },
+        {
+            "kind": "sim.script_inject",
+            "ts_mono_ms": 1001,
+            "spec": {
+                "delivery": "room_pcm",
+                "asset": "/pkg/templates/cues/barge_wait_vi.wav",
+            },
+        },
+        {"kind": "interruption", "ts_mono_ms": 1100, "spec": {"by": "sim"}},
+        {"kind": "sim.script.wait", "ts_mono_ms": 3000, "spec": {"action": "wait"}},
+        {"kind": "transcript.agent.final", "ts_mono_ms": 2500, "spec": {"text": "ok"}},
+        {"kind": "transcript.agent.final", "ts_mono_ms": 4000, "spec": {"text": "again"}},
+    ]
+    s = build_caller_behavior_summary(events)
+    assert s["barges_fired"] == 1
+    assert s["barges_during_agent"] == 1
+    assert s["silences_held"] == 1
+    assert s["interruptions"] == 1
+    assert s["agent_finals_after_barge"] == 2
+    assert s["recovery_ms"] == 1500
+    assert "builtin:voice.barge_short" in s["cue_assets"]
+    assert any("barge_wait_vi.wav" in a for a in s["cue_assets"])
+
+
 def test_evaluate_barge_in_recovery():
     steps = [
         ScriptStep(

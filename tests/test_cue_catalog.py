@@ -17,6 +17,19 @@ def test_resolve_builtin_prefix() -> None:
     assert p.name == "loud_noise_burst.wav"
 
 
+def test_resolve_vocal_voice_aliases() -> None:
+    for alias, fname in (
+        ("voice.barge_short", "barge_wait_en.wav"),
+        ("voice.barge_sorry", "barge_sorry_en.wav"),
+        ("voice.backchannel", "backchannel_uhhuh_en.wav"),
+        ("voice.barge_vi", "barge_wait_vi.wav"),
+    ):
+        p = resolve_cue_asset(f"builtin:{alias}")
+        assert p.is_file(), alias
+        assert p.name == fname
+        assert BUILTIN_ALIASES[alias] == fname
+
+
 def test_resolve_at_alias() -> None:
     p = resolve_cue_asset("@noise.ambient")
     assert p.is_file()

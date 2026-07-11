@@ -124,7 +124,29 @@ def _write_report(tmp: Path, *, with_markers: bool = False) -> Path:
                         "pass": True,
                         "agent_finals_after_barge_in": 1,
                     },
-                    "assert_verify": {"pass": True, "skipped": False, "checks": []},
+                    "assert_verify": {
+                        "pass": True,
+                        "skipped": False,
+                        "checks": [
+                            {
+                                "check": "outcome:recovered",
+                                "type": "recovery",
+                                "pass": True,
+                                "recovery_ms": 5800,
+                                "agent_finals_after_barge_in": 1,
+                            }
+                        ],
+                    },
+                    "caller": {
+                        "behavior_summary": {
+                            "barges_fired": 1,
+                            "barges_during_agent": 1,
+                            "silences_held": 1,
+                            "agent_finals_after_barge": 1,
+                            "recovery_ms": 5800,
+                            "recovery_assert_pass": True,
+                        }
+                    },
                 }
             ),
             encoding="utf-8",
@@ -175,6 +197,9 @@ def test_build_markers_barge_silence_recovery(tmp_path: Path) -> None:
     assert payload["marker_counts"]["barge_in"] == 1
     assert payload["script_verify"]["pass"] is True
     assert payload["assert_verify"]["pass"] is True
+    assert payload["behavior_summary"]["barges_fired"] == 1
+    assert payload["behavior_summary"]["recovery_ms"] == 5800
+    assert payload["caller"]["behavior_summary"]["silences_held"] == 1
 
     # Agent cue near barge should get tags
     agent0 = payload["cues"][0]

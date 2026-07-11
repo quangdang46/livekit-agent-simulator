@@ -68,7 +68,27 @@ export type AssertVerify = {
     role?: string;
     type?: string;
     reason?: string | null;
+    recovery_ms?: number | null;
+    agent_finals_after_barge_in?: number;
+    expected_min?: number;
   }>;
+};
+
+/** Aggregated barge / silence / recovery stats from the run. */
+export type BehaviorSummary = {
+  script_cues_fired?: number;
+  waits_fired?: number;
+  barges_fired?: number;
+  barges_during_agent?: number;
+  cues_during_agent?: number;
+  silences_held?: number;
+  silence_events?: number;
+  interruptions?: number;
+  agent_finals_after_barge?: number;
+  agent_finals_after_silence?: number;
+  recovery_ms?: number | null;
+  recovery_assert_pass?: boolean;
+  cue_assets?: string[];
 };
 
 export type CuesPayload = {
@@ -85,4 +105,6 @@ export type CuesPayload = {
   marker_counts?: Record<string, number>;
   script_verify?: ScriptVerify | null;
   assert_verify?: AssertVerify | null;
+  caller?: { behavior_summary?: BehaviorSummary | null } | null;
+  behavior_summary?: BehaviorSummary | null;
 };

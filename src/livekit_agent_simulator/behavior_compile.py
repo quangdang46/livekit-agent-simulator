@@ -10,6 +10,18 @@ from typing import Any
 from .script_runner import ScriptStep, ScriptVerifySpec
 
 
+def _is_voice_asset(asset: str | None) -> bool:
+    """True for package vocal speech refs (voice.*), not synthetic noise.*."""
+    if not asset:
+        return False
+    name = str(asset).strip().lower()
+    if name.startswith("builtin:"):
+        name = name[len("builtin:") :]
+    if name.startswith("@"):
+        name = name[1:]
+    return name.startswith("voice.")
+
+
 def _norm_constraints(raw: Any) -> list[str]:
     if raw is None:
         return []
@@ -52,19 +64,22 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
     if barge in ("mid_agent_turn", "mid", "interrupt", "barge", "true", "1"):
         after = int(sc.get("barge_after_agent_ms") or sc.get("after_agent_ms") or 600)
         say = str(sc.get("barge_say") or "Sorry — one second —").strip()
-        with_blip = bool(sc.get("with_blip", True))
         asset = sc.get("barge_asset")
-        delivery = "room_pcm" if asset else "gemini_text"
+        asset_s = str(asset).strip() if asset else ""
+        delivery = "room_pcm" if asset_s else "gemini_text"
+        # Text barge: blip by default. Vocal WAV (voice.*) already carries energy — no blip.
+        default_blip = not _is_voice_asset(asset_s) if asset_s else True
+        with_blip = bool(sc.get("with_blip", default_blip))
         steps.append(
             ScriptStep(
                 id="auto-barge-1",
                 trigger="agent_speaking",
                 delay_ms=max(100, after // 2),
-                say=say if delivery == "gemini_text" else str(sc.get("barge_say") or "[barge]"),
+                say=say if delivery == "gemini_text" else (say or "[barge]"),
                 label="auto-barge-1",
                 min_agent_active_ms=max(100, after // 2),
                 delivery=delivery,
-                asset=str(asset).strip() if asset else None,
+                asset=asset_s or None,
                 barge_in=True,
                 with_blip=with_blip,
                 once=True,
@@ -117,11 +132,22 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
         sid = str(raw.get("id") or f"behavior-barge-{i}")
         after = int(raw.get("after_agent_ms") or raw.get("delay_ms") or 600)
         say = str(raw.get("say") or raw.get("text") or "Wait —").strip()
-        delivery = str(raw.get("delivery") or "gemini_text")
         asset = raw.get("asset")
-        if delivery == "room_pcm" and not asset:
+        asset_s = str(asset).strip() if asset else ""
+        # Asset → room_pcm unless delivery is explicitly set.
+        if "delivery" in raw:
+            delivery = str(raw.get("delivery") or "gemini_text")
+        else:
+            delivery = "room_pcm" if asset_s else "gemini_text"
+        if delivery == "room_pcm" and not asset_s:
             raise ValueError(f"{path_label}: barge_ins[{i}] room_pcm needs asset")
-        with_blip = bool(raw.get("with_blip", delivery != "room_pcm"))
+        # Vocal WAV already audible; noise room_pcm / gemini_text keep blip defaults.
+        if "with_blip" in raw:
+            with_blip = bool(raw.get("with_blip"))
+        elif _is_voice_asset(asset_s):
+            with_blip = False
+        else:
+            with_blip = delivery != "room_pcm"
         steps.append(
             ScriptStep(
                 id=sid,
@@ -131,7 +157,7 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
                 label=str(raw.get("label") or sid),
                 min_agent_active_ms=max(100, int(raw.get("min_agent_active_ms") or max(150, after // 2))),
                 delivery=delivery,
-                asset=str(asset).strip() if asset else None,
+                asset=asset_s or None,
                 barge_in=True,
                 with_blip=with_blip,
                 once=bool(raw.get("once", True)),

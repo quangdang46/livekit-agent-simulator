@@ -28,16 +28,27 @@ BUILTIN_ALIASES: dict[str, str] = {
     "noise.loud": "loud_noise_burst.wav",
     "noise.blip": "loud_interrupt_blip.wav",
     "noise.interrupt": "loud_interrupt_blip.wav",
+    # Legacy JA samples (filename-stable refs)
     "backchannel": "backchannel_ja.wav",
     "backchannel_ja": "backchannel_ja.wav",
     "interrupt": "real_interrupt_ja.wav",
     "real_interrupt_ja": "real_interrupt_ja.wav",
     "ambiguous": "ambiguous_ja.wav",
     "ambiguous_ja": "ambiguous_ja.wav",
-    # Vocal-oriented aliases (may resolve to same JA samples or target overrides).
-    "voice.backchannel": "backchannel_ja.wav",
-    "voice.barge_short": "real_interrupt_ja.wav",
-    "voice.interrupt": "real_interrupt_ja.wav",
+    # Portable vocal speech (EN default + VI); override in .agent-sim/cues/
+    "voice.backchannel": "backchannel_uhhuh_en.wav",
+    "voice.uhhuh": "backchannel_uhhuh_en.wav",
+    "voice.barge_short": "barge_wait_en.wav",
+    "voice.barge_wait": "barge_wait_en.wav",
+    "voice.barge_sorry": "barge_sorry_en.wav",
+    "voice.interrupt": "barge_wait_en.wav",
+    "voice.barge_wait_en": "barge_wait_en.wav",
+    "voice.barge_sorry_en": "barge_sorry_en.wav",
+    "voice.backchannel_en": "backchannel_uhhuh_en.wav",
+    "voice.barge_vi": "barge_wait_vi.wav",
+    "voice.barge_wait_vi": "barge_wait_vi.wav",
+    "voice.backchannel_ja": "backchannel_ja.wav",
+    "voice.interrupt_ja": "real_interrupt_ja.wav",
 }
 
 

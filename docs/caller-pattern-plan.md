@@ -209,8 +209,8 @@ Keep `Assert` + `PassCriteria`; add recovery-friendly outcomes:
 |---|---|
 | Assert type `recovery` | `min_interruptions`, `min_agent_finals_after_barge_in` already in script_verify — unify UX under Assert or keep script_verify |
 | Timing | `max_ms_after_barge_to_agent_final` from events |
-| Summary field | `caller.behavior_summary` (barges fired, silences held, during_agent counts) |
-| Web | show recovery chip |
+| Summary field | `caller.behavior_summary` (barges fired, silences held, during_agent counts, `recovery_ms`) |
+| Web | recovery chip (+ barges / silence holds) from summary + assert recovery outcomes |
 
 **Done when:** CI hard-fails if barge fired but agent never re-engages (already partial); optional latency gate works.
 

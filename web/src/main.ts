@@ -2,6 +2,7 @@ import "./style.css";
 import { fetchCues, fetchRuns } from "./api";
 import type {
   AssertVerify,
+  BehaviorSummary,
   Cue,
   CuesPayload,
   Marker,
@@ -150,11 +151,17 @@ function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
   };
 }
 
+function fmtRecoveryMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 function mountVerify(
   el: HTMLElement,
   script: ScriptVerify | null | undefined,
   assertV: AssertVerify | null | undefined,
   counts: Record<string, number> | undefined,
+  behavior: BehaviorSummary | null | undefined,
 ): void {
   el.innerHTML = "";
   const chips: Array<{ text: string; cls: string }> = [];
@@ -176,11 +183,64 @@ function mountVerify(
       });
     }
   }
+  let assertRecoveryShown = false;
   if (assertV && typeof assertV.pass === "boolean" && !assertV.skipped) {
     chips.push({
       text: `assert ${assertV.pass ? "pass" : "fail"}`,
       cls: assertV.pass ? "chip pass" : "chip fail",
     });
+    for (const chk of assertV.checks || []) {
+      if (chk.type === "recovery") {
+        assertRecoveryShown = true;
+        const ok = chk.pass !== false;
+        const parts = ["recovery"];
+        if (chk.recovery_ms != null) parts.push(fmtRecoveryMs(Number(chk.recovery_ms)));
+        if (chk.agent_finals_after_barge_in != null) {
+          parts.push(`${chk.agent_finals_after_barge_in} finals`);
+        }
+        chips.push({
+          text: parts.join(" · "),
+          cls: ok ? "chip pass" : "chip fail",
+        });
+      }
+    }
+  }
+  if (behavior) {
+    if (behavior.barges_fired) {
+      chips.push({
+        text: `barges ×${behavior.barges_fired}${
+          behavior.barges_during_agent
+            ? ` (${behavior.barges_during_agent} mid-agent)`
+            : ""
+        }`,
+        cls: "chip",
+      });
+    }
+    if (behavior.silences_held) {
+      chips.push({
+        text: `silence holds ×${behavior.silences_held}`,
+        cls: "chip",
+      });
+    }
+    if (!assertRecoveryShown) {
+      if (behavior.recovery_ms != null && behavior.recovery_ms >= 0) {
+        const passCls =
+          behavior.recovery_assert_pass === true
+            ? "chip pass"
+            : behavior.recovery_assert_pass === false
+              ? "chip fail"
+              : "chip";
+        chips.push({
+          text: `recovery ${fmtRecoveryMs(behavior.recovery_ms)}`,
+          cls: passCls,
+        });
+      } else if (
+        behavior.barges_fired &&
+        (behavior.agent_finals_after_barge ?? 0) === 0
+      ) {
+        chips.push({ text: "recovery: none", cls: "chip fail" });
+      }
+    }
   }
   if (counts) {
     for (const t of LEGEND_ORDER) {
@@ -415,7 +475,17 @@ async function showPlayer(runId: string): Promise<void> {
       ui.missing.classList.remove("hidden");
     }
 
-    mountVerify(ui.verify, data.script_verify, data.assert_verify, data.marker_counts);
+    const behavior =
+      data.behavior_summary ||
+      data.caller?.behavior_summary ||
+      null;
+    mountVerify(
+      ui.verify,
+      data.script_verify,
+      data.assert_verify,
+      data.marker_counts,
+      behavior,
+    );
     mountLegend(ui.legend, markers);
     mountTimeline(ui.timeline, ui.playhead, markers, durationMs, ui.audio);
 

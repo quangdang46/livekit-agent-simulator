@@ -280,6 +280,25 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 status = "failed"
             meta["assert_failed"] = True
 
+    # Caller behavior digest for reports / web (barges, silences, recovery latency).
+    if status in ("done", "failed"):
+        from .script_runner import build_caller_behavior_summary
+
+        behavior_summary = build_caller_behavior_summary(writer.events)
+        # Enrich recovery latency from assert recovery outcomes when present.
+        assert_v = summary_extra.get("assert_verify")
+        if isinstance(assert_v, dict):
+            for chk in assert_v.get("checks") or []:
+                if (
+                    isinstance(chk, dict)
+                    and chk.get("type") == "recovery"
+                    and chk.get("recovery_ms") is not None
+                ):
+                    behavior_summary["recovery_ms"] = chk.get("recovery_ms")
+                    behavior_summary["recovery_assert_pass"] = bool(chk.get("pass"))
+                    break
+        summary_extra["caller"] = {"behavior_summary": behavior_summary}
+
     if status in ("done", "failed") and cfg.judge is not None and scenario.pass_criteria:
         try:
             tool_events = [e for e in writer.events if e["kind"].startswith("tool.")]

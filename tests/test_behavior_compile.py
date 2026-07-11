@@ -28,6 +28,22 @@ def test_compile_speech_conditions_barge_and_noise():
     assert barge.with_blip is True
 
 
+def test_compile_vocal_barge_asset_no_blip():
+    persona = {
+        "brief": "x",
+        "speech_conditions": {
+            "barge_policy": "mid_agent_turn",
+            "barge_asset": "builtin:voice.barge_short",
+            "barge_say": "[barge]",
+        },
+    }
+    steps = compile_from_speech_conditions(persona)
+    barge = next(s for s in steps if s.barge_in)
+    assert barge.delivery == "room_pcm"
+    assert barge.asset == "builtin:voice.barge_short"
+    assert barge.with_blip is False
+
+
 def test_compile_behavior_spec():
     steps = compile_from_behavior_spec(
         {
