@@ -30,6 +30,17 @@ paths — use `execute_*` to validate then run.
 curl -fsSL https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh | bash
 # requires uv (or pipx). Then:
 lk-sim guide
+lk-sim web --root /path/to/target   # no Node required — player is prebuilt into the package
+```
+
+### Report player (maintainers)
+
+Source: `web/` (Vite + TypeScript). Users never run this.
+
+```bash
+pnpm --dir web install
+pnpm --dir web build    # → templates/report-player/ (served by lk-sim web)
+pnpm --dir web dev      # HMR; proxy /api + /runs → lk-sim web on :8765
 ```
 
 ## Quick start

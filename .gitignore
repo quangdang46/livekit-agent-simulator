@@ -9,3 +9,7 @@ build/
 *.sqlite
 *.sqlite-journal
 .env
+
+# Vite report player (source in web/; ship built assets under templates/report-player/)
+web/node_modules/
+web/dist/

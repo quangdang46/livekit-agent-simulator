@@ -51,12 +51,24 @@ class ReportUIHandler(SimpleHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             return self._serve_file(self.player_dir / "index.html", "text/html; charset=utf-8")
+        # Vite multi-chunk assets (and legacy flat player.* files if present)
         if path == "/player.html":
-            return self._serve_file(self.player_dir / "player.html", "text/html; charset=utf-8")
-        if path == "/player.js":
-            return self._serve_file(self.player_dir / "player.js", "application/javascript; charset=utf-8")
-        if path == "/player.css":
-            return self._serve_file(self.player_dir / "player.css", "text/css; charset=utf-8")
+            # SPA: player is index.html?run=
+            qs = parse_qs(parsed.query)
+            run = (qs.get("run") or [None])[0]
+            loc = f"/?run={run}" if run else "/"
+            return self._redirect(loc)
+        if path.startswith("/assets/"):
+            name = path[len("/assets/") :]
+            # prevent path escape
+            target = (self.player_dir / "assets" / name).resolve()
+            assets_root = (self.player_dir / "assets").resolve()
+            if not str(target).startswith(str(assets_root)) or not target.is_file():
+                return self._error(404, "asset not found")
+            ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            return self._serve_file(target, ctype)
+        if path in ("/player.js", "/player.css"):
+            return self._serve_file(self.player_dir / path.lstrip("/"), mimetypes.guess_type(path)[0] or "text/plain")
 
         if path == "/api/runs":
             runs = []
@@ -105,11 +117,7 @@ class ReportUIHandler(SimpleHTTPRequestHandler):
             if not report_dir.is_dir():
                 return self._error(404, "run not found")
             if not name or name in ("", "player"):
-                # Serve player with ?run= in query — redirect
-                qs = parse_qs(parsed.query)
-                if "run" not in qs:
-                    return self._redirect(f"/player.html?run={run_id}")
-                return self._serve_file(self.player_dir / "player.html", "text/html; charset=utf-8")
+                return self._redirect(f"/?run={run_id}")
             if name == "cues.json":
                 write_cues_json(report_dir)
                 return self._serve_file(report_dir / "cues.json", "application/json; charset=utf-8")
@@ -171,8 +179,10 @@ def start_web_server(
     """Start report UI server. Returns {url, host, port, run_id, runs}."""
     reports_dir = Path(reports_dir).resolve()
     player_dir = _player_dir()
-    if not (player_dir / "player.html").exists():
-        raise FileNotFoundError(f"Report player assets missing: {player_dir}")
+    if not (player_dir / "index.html").exists():
+        raise FileNotFoundError(
+            f"Report player assets missing: {player_dir}/index.html — run: pnpm --dir web build"
+        )
 
     runs = list_run_ids(reports_dir)
     if run_id is None and runs:
@@ -187,7 +197,7 @@ def start_web_server(
 
     httpd = ThreadingHTTPServer((host, port), ReportUIHandler)
     base = f"http://{host}:{port}"
-    path = f"/player.html?run={run_id}" if run_id else "/"
+    path = f"/?run={run_id}" if run_id else "/"
     url = base + path
 
     thread = threading.Thread(target=httpd.serve_forever, name="lk-sim-web", daemon=True)

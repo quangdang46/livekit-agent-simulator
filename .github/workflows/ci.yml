@@ -4,10 +4,8 @@ on:
   pull_request:
     branches:
       - main
-      - main
   push:
     branches:
-      - main
       - main
 
 concurrency:
@@ -26,6 +24,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build report player
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -53,6 +69,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build report player
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -79,6 +113,7 @@ jobs:
             echo ""
             echo "| Check | Status |"
             echo "|-------|--------|"
+            echo "| report player (Vite) | required |"
             echo "| pytest (3.10, 3.12) | required |"
             echo "| \`uv build\` | required |"
             echo "| artifact | \`dist-py312\` |"
