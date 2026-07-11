@@ -67,16 +67,24 @@ jobs:
 
             Distribution is **git + uv/pipx only** (no PyPI / wheel publish).
 
-            ```bash
-            # macOS / Linux — pin to this tag
-            curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --from-git ${{ github.ref_name }} --verify
+            ### macOS / Linux
 
-            # Windows PowerShell
-            irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
-            # then if needed: re-run with -FromGit -GitRef ${{ github.ref_name }}
+            ```bash
+            # pin to this release tag
+            curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref ${{ github.ref_name }} --verify
+
+            # or latest main
+            curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
             ```
 
-            Or directly:
+            ### Windows PowerShell
+
+            ```powershell
+            irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
+            .\install.ps1 -GitRef ${{ github.ref_name }} -Verify
+            ```
+
+            ### Direct (no installer)
 
             ```bash
             uv tool install --force "git+https://github.com/quangdang46/livekit-agent-simulator.git@${{ github.ref_name }}"
@@ -98,8 +106,13 @@ jobs:
             echo "- GitHub Release with install.sh + install.ps1"
             echo "- **No** wheel / sdist / PyPI publish"
             echo ""
-            echo "### Install"
+            echo "### Install (full URLs)"
             echo "\`\`\`bash"
-            echo "curl -fsSL .../install.sh | bash -s -- --from-git ${GITHUB_REF_NAME}"
+            echo "curl -fsSL \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?\$(date +%s)\" | bash -s -- --ref ${GITHUB_REF_NAME} --verify"
+            echo "\`\`\`"
+            echo ""
+            echo "\`\`\`powershell"
+            echo "irm \"https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1\" -OutFile install.ps1"
+            echo ".\\install.ps1 -GitRef ${GITHUB_REF_NAME} -Verify"
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"

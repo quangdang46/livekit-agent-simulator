@@ -21,7 +21,8 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 7. `report <run-id>` and/or **`web`** (browser: play audio + highlight transcript).
 
 ```bash
-# Install once (optional): curl install.sh | bash  →  lk-sim on PATH
+# Install once (optional):
+# curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash
 # From anywhere; point --root at the target repo under test
 lk-sim guide
 lk-sim init --root /path/to/target

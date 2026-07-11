@@ -47,16 +47,29 @@ Installer options (Unix) — **git only** (no PyPI / wheel):
 
 ```bash
 # pin to a tag
-curl -fsSL ".../install.sh" | bash -s -- --ref v0.1.0 --verify
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref v0.1.0 --verify
 
 # main + skip MCP auto-config
-curl -fsSL ".../install.sh" | bash -s -- --ref main --no-mcp
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --ref main --no-mcp
 
 # uninstall tool + MCP registrations
-curl -fsSL ".../install.sh" | bash -s -- --uninstall
+curl -fsSL "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.sh?$(date +%s)" | bash -s -- --uninstall
 ```
 
-Windows: `.\install.ps1 -GitRef v0.1.0 -Verify`, `-NoMcp`, `-Uninstall`.
+Windows PowerShell (full examples):
+
+```powershell
+# default = main
+irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" | iex
+
+# pin tag + verify
+irm "https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/install.ps1" -OutFile install.ps1
+.\install.ps1 -GitRef v0.1.0 -Verify
+
+# skip MCP / uninstall
+.\install.ps1 -GitRef main -NoMcp
+.\install.ps1 -Uninstall
+```
 
 By default the installer also registers the **MCP** server `livekit-agent-simulator`
 (`livekit-agent-simulator-mcp`) into common AI coding tools (Claude Code, Cursor, Cline,
