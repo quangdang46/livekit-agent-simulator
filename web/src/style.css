@@ -1,20 +1,25 @@
 :root {
   color-scheme: light dark;
-  --bg: #0f1115;
-  --panel: #181b22;
+  --bg: #0c0e12;
+  --panel: #161a22;
+  --panel-2: #1c212b;
   --text: #e8eaed;
   --muted: #9aa0a6;
-  --agent: #8ab4f8;
-  --user: #81c995;
-  --active: #fdd663;
-  --border: #2a2f3a;
-  --warn: #f28b82;
-  /* Behavior markers */
-  --mk-barge: #f28b82;
+  --agent: #6cb6ff;
+  --agent-bg: color-mix(in srgb, #3b82f6 16%, var(--panel));
+  --agent-border: color-mix(in srgb, #3b82f6 45%, var(--border));
+  --user: #5eead4;
+  --user-bg: color-mix(in srgb, #14b8a6 14%, var(--panel));
+  --user-border: color-mix(in srgb, #14b8a6 45%, var(--border));
+  --active: #fbbf24;
+  --border: #2a3140;
+  --warn: #f87171;
+  --dock-bg: color-mix(in srgb, var(--bg) 88%, #000);
+  --mk-barge: #f87171;
   --mk-script: #a78bfa;
-  --mk-silence-wait: #fdd663;
-  --mk-silence: #fbbc04;
-  --mk-interrupt: #ff8a65;
+  --mk-silence-wait: #fbbf24;
+  --mk-silence: #f59e0b;
+  --mk-interrupt: #fb923c;
   --mk-recovery: #34d399;
   font-family:
     ui-sans-serif,
@@ -27,21 +32,27 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f6f7f9;
-    --panel: #fff;
-    --text: #202124;
-    --muted: #5f6368;
-    --agent: #1a73e8;
-    --user: #188038;
-    --active: #e37400;
-    --border: #dadce0;
-    --warn: #c5221f;
-    --mk-barge: #d93025;
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --panel-2: #f8fafc;
+    --text: #111827;
+    --muted: #6b7280;
+    --agent: #1d4ed8;
+    --agent-bg: #eff6ff;
+    --agent-border: #93c5fd;
+    --user: #0f766e;
+    --user-bg: #f0fdfa;
+    --user-border: #5eead4;
+    --active: #d97706;
+    --border: #e5e7eb;
+    --warn: #dc2626;
+    --dock-bg: color-mix(in srgb, #fff 92%, var(--bg));
+    --mk-barge: #dc2626;
     --mk-script: #7c3aed;
-    --mk-silence-wait: #e37400;
-    --mk-silence: #f9ab00;
-    --mk-interrupt: #e8710a;
-    --mk-recovery: #137333;
+    --mk-silence-wait: #d97706;
+    --mk-silence: #f59e0b;
+    --mk-interrupt: #ea580c;
+    --mk-recovery: #059669;
   }
 }
 
@@ -49,22 +60,39 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
+  height: 100%;
+}
+
+body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.45;
 }
 
+#app {
+  min-height: 100%;
+}
+
 .page {
-  max-width: 52rem;
+  max-width: 48rem;
   margin: 0 auto;
   padding: 1.25rem 1rem 3rem;
 }
 
+.player-page {
+  max-width: 56rem;
+  padding-bottom: 2rem;
+}
+
 .header h1 {
-  margin: 0.25rem 0;
-  font-size: 1.35rem;
+  margin: 0.35rem 0 0.15rem;
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  word-break: break-all;
 }
 
 .muted {
@@ -83,7 +111,7 @@ body {
 .back {
   color: var(--agent);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   background: none;
   border: 0;
   cursor: pointer;
@@ -95,29 +123,110 @@ body {
   text-decoration: underline;
 }
 
-.audio-panel {
-  background: var(--panel);
+/* Sticky playback dock — stays put while you scroll the transcript */
+.player-dock {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 0.95rem 0.75rem;
+  background: var(--dock-bg);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem;
-  margin: 1rem 0;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px color-mix(in srgb, #000 22%, transparent);
+}
+
+.audio-panel {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
 }
 
 audio {
   width: 100%;
+  height: 2.4rem;
+}
+
+.dock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.role-key {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.role-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.role-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.role-dot.agent {
+  background: var(--agent);
+}
+.role-dot.user {
+  background: var(--user);
+}
+
+.follow-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.follow-btn:hover {
+  border-color: var(--active);
+  color: var(--text);
+}
+
+.follow-btn.on {
+  border-color: color-mix(in srgb, var(--active) 55%, var(--border));
+  color: var(--active);
+  background: color-mix(in srgb, var(--active) 12%, var(--panel));
+}
+
+.follow-btn.off {
+  border-color: var(--border);
+  color: var(--muted);
 }
 
 .hint {
-  margin: 0.5rem 0 0;
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
 }
 
 /* Timeline with marker bands */
 .timeline {
   position: relative;
-  height: 36px;
-  margin-top: 0.85rem;
-  background: color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 8px;
+  height: 40px;
+  margin-top: 0.75rem;
+  background: color-mix(in srgb, var(--border) 45%, transparent);
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
   border: 1px solid var(--border);
@@ -125,12 +234,15 @@ audio {
 
 .timeline-band {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  border-radius: 4px;
-  opacity: 0.85;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 5px;
+  opacity: 0.88;
   min-width: 3px;
   transition: opacity 0.12s;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 
 .timeline-band:hover {
@@ -164,17 +276,18 @@ audio {
   bottom: 0;
   width: 2px;
   background: var(--text);
-  opacity: 0.7;
+  opacity: 0.85;
   pointer-events: none;
   z-index: 3;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 50%, transparent);
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem 0.9rem;
-  margin-top: 0.65rem;
-  font-size: 0.78rem;
+  margin-top: 0.55rem;
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
@@ -214,13 +327,13 @@ audio {
 .verify-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.75rem 0 0;
+  gap: 0.45rem;
+  margin: 0.65rem 0 0;
 }
 
 .chip {
-  font-size: 0.78rem;
-  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  padding: 0.18rem 0.55rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel) 80%, var(--border));
@@ -237,52 +350,110 @@ audio {
   color: var(--mk-barge);
 }
 
+.transcript-panel {
+  margin-top: 1rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
 .section-title {
-  font-size: 1rem;
-  margin: 1.25rem 0 0.5rem;
+  font-size: 0.78rem;
+  margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.section-hint {
+  font-size: 0.75rem;
   color: var(--muted);
 }
 
+/* Chat-style timeline */
 .cues {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 2rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.65rem;
 }
 
 .cue {
-  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  max-width: min(92%, 36rem);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  padding: 0.7rem 0.9rem 0.75rem;
   cursor: pointer;
   transition:
     border-color 0.15s,
-    background 0.15s;
+    box-shadow 0.15s,
+    transform 0.12s;
   text-align: left;
-  width: 100%;
+  width: fit-content;
   color: inherit;
   font: inherit;
+  position: relative;
 }
 
 .cue:hover {
-  border-color: var(--active);
+  transform: translateY(-1px);
+}
+
+.cue.role-agent {
+  align-self: flex-start;
+  background: var(--agent-bg);
+  border-color: var(--agent-border);
+  border-left: 3px solid var(--agent);
+}
+
+.cue.role-user {
+  align-self: flex-end;
+  background: var(--user-bg);
+  border-color: var(--user-border);
+  border-right: 3px solid var(--user);
+}
+
+.cue.role-other {
+  align-self: stretch;
+  max-width: 100%;
+  width: 100%;
+  background: var(--panel);
 }
 
 .cue.active {
-  border-color: var(--active);
-  box-shadow: 0 0 0 1px var(--active);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 70%, transparent);
 }
 
-/* Marker rows (interleaved timeline) */
+.cue.role-agent.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent) 55%, transparent);
+}
+
+.cue.role-user.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--user) 55%, transparent);
+}
+
+/* Marker rows (events, not dialogue) */
 .cue.marker {
+  align-self: center;
+  max-width: min(96%, 40rem);
+  width: auto;
   border-style: dashed;
-  border-width: 2px;
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border-width: 1.5px;
+  border-left-width: 1.5px;
+  border-right-width: 1.5px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
 }
 
 .cue.marker.barge_in {
@@ -311,35 +482,53 @@ audio {
 }
 
 .cue.marker.active {
-  box-shadow: 0 0 0 1px currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--active) 50%, transparent);
 }
 
 .cue-meta {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.45rem;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 0.35rem;
-  font-size: 0.8rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.75rem;
 }
 
 .role {
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.role::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 .role.agent {
   color: var(--agent);
+  text-transform: none;
 }
 
 .role.user {
   color: var(--user);
+  text-transform: none;
 }
 
 .role.marker-type {
   font-size: 0.72rem;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.role.marker-type::before {
+  border-radius: 2px;
 }
 
 .role.marker-type.barge_in {
@@ -364,14 +553,15 @@ audio {
 .time {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
 }
 
 .tag {
-  font-size: 0.68rem;
-  font-weight: 600;
+  font-size: 0.65rem;
+  font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 0.1rem 0.4rem;
+  padding: 0.08rem 0.38rem;
   border-radius: 4px;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -405,14 +595,22 @@ audio {
 .cue-text {
   white-space: pre-wrap;
   word-break: break-word;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.cue.role-agent .cue-text,
+.cue.role-user .cue-text {
+  font-size: 0.97rem;
 }
 
 .cue-detail {
   margin-top: 0.25rem;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--muted);
 }
 
+/* Run list */
 .run-list {
   list-style: none;
   padding: 0;
@@ -420,8 +618,12 @@ audio {
 }
 
 .run-list li {
-  padding: 0.65rem 0;
+  padding: 0.75rem 0.15rem;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.35rem;
 }
 
 .run-list a,
@@ -434,6 +636,7 @@ audio {
   cursor: pointer;
   font: inherit;
   padding: 0;
+  text-align: left;
 }
 
 .run-list a:hover,
@@ -444,4 +647,18 @@ audio {
 .error {
   color: var(--warn);
   white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .cue {
+    max-width: 100%;
+  }
+  .cue.role-user,
+  .cue.role-agent {
+    max-width: 96%;
+  }
+  .player-page {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
 }

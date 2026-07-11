@@ -105,7 +105,23 @@ type PlayerUI = {
   playhead: HTMLElement;
   legend: HTMLElement;
   verify: HTMLElement;
+  followBtn: HTMLButtonElement;
 };
+
+/** Role labels shown in the chat timeline (sim caller = user channel). */
+function roleLabel(role: string): string {
+  const r = role.toLowerCase();
+  if (r === "agent") return "Agent";
+  if (r === "user") return "Caller";
+  return role;
+}
+
+function roleClass(role: string): string {
+  const r = role.toLowerCase();
+  if (r === "agent") return "role-agent";
+  if (r === "user") return "role-user";
+  return "role-other";
+}
 
 function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
   root.innerHTML = `
@@ -116,24 +132,40 @@ function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
         <p id="subtitle" class="muted"></p>
         <div id="verify" class="verify-bar"></div>
       </header>
-      <section class="audio-panel">
-        <audio id="audio" controls preload="metadata"></audio>
-        <p id="audio-missing" class="warn hidden">
-          No <code>conversation.wav</code> for this run. Timeline still lists with timestamps.
-        </p>
-        <div id="timeline" class="timeline" title="Click to seek">
-          <div id="playhead" class="timeline-playhead" style="left:0"></div>
-        </div>
-        <div id="legend" class="legend"></div>
-        <p class="hint muted">L = sim caller · R = agent (stereo). Colored bands = barge-in / silence / recovery. Click a line or band to seek.</p>
-      </section>
+      <div class="player-dock" id="dock">
+        <section class="audio-panel">
+          <audio id="audio" controls preload="metadata"></audio>
+          <p id="audio-missing" class="warn hidden">
+            No <code>conversation.wav</code> for this run. Timeline still lists with timestamps.
+          </p>
+          <div id="timeline" class="timeline" title="Click to seek">
+            <div id="playhead" class="timeline-playhead" style="left:0"></div>
+          </div>
+          <div class="dock-row">
+            <div class="role-key" aria-label="Speaker legend">
+              <span class="role-key-item"><span class="role-dot agent"></span> Agent (right channel)</span>
+              <span class="role-key-item"><span class="role-dot user"></span> Caller / sim (left channel)</span>
+            </div>
+            <button type="button" class="follow-btn on" id="follow" title="When on, transcript keeps the current line in view. Scroll freely turns this off.">
+              Follow live
+            </button>
+          </div>
+          <div id="legend" class="legend"></div>
+          <p class="hint muted">Stereo WAV · click a bubble or band to seek · scroll anytime (follow pauses until you re-enable)</p>
+        </section>
+      </div>
       <section class="transcript-panel">
-        <h2 class="section-title">Timeline</h2>
+        <div class="section-head">
+          <h2 class="section-title">Conversation</h2>
+          <span class="section-hint">Agent left · Caller right · Events centered</span>
+        </div>
         <ol id="cues" class="cues"></ol>
       </section>
     </main>
   `;
   root.querySelector("#back")?.addEventListener("click", () => {
+    playerListeners?.abort();
+    playerListeners = null;
     setRunInUrl(null);
     void showList();
   });
@@ -148,6 +180,7 @@ function renderPlayerShell(root: HTMLElement, runId: string): PlayerUI {
     playhead: root.querySelector("#playhead") as HTMLElement,
     legend: root.querySelector("#legend") as HTMLElement,
     verify: root.querySelector("#verify") as HTMLElement,
+    followBtn: root.querySelector("#follow") as HTMLButtonElement,
   };
 }
 
@@ -351,6 +384,7 @@ function mountTimelineList(
   ol: HTMLOListElement,
   items: TimelineItem[],
   audio: HTMLAudioElement,
+  onUserSeek: () => void,
 ): HTMLElement[] {
   ol.innerHTML = "";
   const els: HTMLElement[] = [];
@@ -386,10 +420,12 @@ function mountTimelineList(
       }
     } else {
       const c = item.cue;
-      li.className = "cue";
+      const r = (c.role || "other").toLowerCase();
+      li.className = `cue ${roleClass(r)}`;
+      li.dataset.role = r;
       li.innerHTML = `
         <div class="cue-meta">
-          <span class="role ${c.role}"></span>
+          <span class="role ${r}"></span>
           <span class="time"></span>
           <span class="tags"></span>
         </div>
@@ -399,7 +435,7 @@ function mountTimelineList(
       const time = li.querySelector(".time");
       const text = li.querySelector(".cue-text");
       const tags = li.querySelector(".tags");
-      if (role) role.textContent = c.role;
+      if (role) role.textContent = roleLabel(c.role);
       if (time) time.textContent = `${fmtMs(c.start_ms)} – ${fmtMs(c.end_ms)}`;
       if (text) text.textContent = c.text;
       if (tags && c.marker_tags?.length) {
@@ -415,6 +451,7 @@ function mountTimelineList(
     li.addEventListener("click", () => {
       if (!audio.src) return;
       audio.currentTime = (item.start_ms || 0) / 1000;
+      onUserSeek();
       void audio.play().catch(() => undefined);
     });
     ol.appendChild(li);
@@ -423,11 +460,26 @@ function mountTimelineList(
   return els;
 }
 
+type FollowState = {
+  enabled: boolean;
+  /** Ignore scroll events we cause ourselves via scrollIntoView. */
+  suppressScrollUntil: number;
+  lastActive: number;
+};
+
+function setFollowUi(btn: HTMLButtonElement, on: boolean): void {
+  btn.classList.toggle("on", on);
+  btn.classList.toggle("off", !on);
+  btn.textContent = on ? "Follow live" : "Follow paused";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
 function syncActive(
   els: HTMLElement[],
   audio: HTMLAudioElement,
   playhead: HTMLElement,
   durationMs: number,
+  follow: FollowState,
 ): void {
   const t = (audio.currentTime || 0) * 1000;
   let active = -1;
@@ -438,22 +490,90 @@ function syncActive(
     else if (t >= start) active = i;
   }
   els.forEach((el, i) => {
-    const on = i === active;
-    el.classList.toggle("active", on);
-    if (on) {
-      const rect = el.getBoundingClientRect();
-      const view = rect.top >= 80 && rect.bottom <= window.innerHeight - 40;
-      if (!view) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
+    el.classList.toggle("active", i === active);
   });
+
+  // Only auto-scroll when follow is on, and only when the active line changes
+  // (avoids fighting the user mid-line / during smooth scroll).
+  if (follow.enabled && active >= 0 && active !== follow.lastActive) {
+    const el = els[active];
+    const dock = document.querySelector(".player-dock") as HTMLElement | null;
+    const dockBottom = dock ? dock.getBoundingClientRect().bottom + 12 : 100;
+    const rect = el.getBoundingClientRect();
+    const inView =
+      rect.top >= dockBottom && rect.bottom <= window.innerHeight - 24;
+    if (!inView) {
+      follow.suppressScrollUntil = performance.now() + 450;
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+  follow.lastActive = active;
+
   if (durationMs > 0) {
     const pct = Math.min(100, Math.max(0, (t / durationMs) * 100));
     playhead.style.left = `${pct}%`;
   }
 }
 
+// Abort previous player listeners when navigating away / re-opening a run.
+let playerListeners: AbortController | null = null;
+
 async function showPlayer(runId: string): Promise<void> {
+  playerListeners?.abort();
+  playerListeners = new AbortController();
+  const { signal } = playerListeners;
+
   const ui = renderPlayerShell(app!, runId);
+  const follow: FollowState = {
+    enabled: true,
+    suppressScrollUntil: 0,
+    lastActive: -1,
+  };
+  setFollowUi(ui.followBtn, true);
+  ui.followBtn.addEventListener(
+    "click",
+    () => {
+      follow.enabled = !follow.enabled;
+      setFollowUi(ui.followBtn, follow.enabled);
+      if (follow.enabled) {
+        // Jump once to current line when re-enabling.
+        follow.lastActive = -2;
+      }
+    },
+    { signal },
+  );
+
+  // User scroll / wheel / touch → pause follow so they can read earlier turns.
+  const pauseFollowFromUser = () => {
+    if (performance.now() < follow.suppressScrollUntil) return;
+    if (!follow.enabled) return;
+    follow.enabled = false;
+    setFollowUi(ui.followBtn, false);
+  };
+  window.addEventListener("wheel", pauseFollowFromUser, { passive: true, signal });
+  window.addEventListener("touchmove", pauseFollowFromUser, {
+    passive: true,
+    signal,
+  });
+  window.addEventListener(
+    "keydown",
+    (ev) => {
+      if (
+        ev.key === "PageUp" ||
+        ev.key === "PageDown" ||
+        ev.key === "Home" ||
+        ev.key === "End" ||
+        ((ev.key === "ArrowUp" || ev.key === "ArrowDown") &&
+          !(ev.target instanceof HTMLInputElement) &&
+          !(ev.target instanceof HTMLTextAreaElement) &&
+          !(ev.target instanceof HTMLSelectElement))
+      ) {
+        pauseFollowFromUser();
+      }
+    },
+    { signal },
+  );
+
   try {
     const data: CuesPayload = await fetchCues(runId);
     const markers = data.markers || [];
@@ -489,14 +609,22 @@ async function showPlayer(runId: string): Promise<void> {
     mountLegend(ui.legend, markers);
     mountTimeline(ui.timeline, ui.playhead, markers, durationMs, ui.audio);
 
+    const onUserSeek = () => {
+      // Seeking from bubble keeps follow so you land on that line.
+      follow.enabled = true;
+      setFollowUi(ui.followBtn, true);
+      follow.lastActive = -2;
+    };
+
     const items = buildTimelineItems(data.cues || [], markers);
-    const els = mountTimelineList(ui.cuesEl, items, ui.audio);
+    const els = mountTimelineList(ui.cuesEl, items, ui.audio, onUserSeek);
     if (!els.length) {
       ui.subtitle.textContent =
         (ui.subtitle.textContent || "") + " · no transcript/markers found";
     }
 
-    const tick = () => syncActive(els, ui.audio, ui.playhead, durationMs);
+    const tick = () =>
+      syncActive(els, ui.audio, ui.playhead, durationMs, follow);
     ui.audio.addEventListener("timeupdate", tick);
     ui.audio.addEventListener("seeked", tick);
     ui.audio.addEventListener("play", () => {
