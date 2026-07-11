@@ -106,9 +106,17 @@ async def execute_scenarios(
     project_root: str,
     scenario_ids: list[str] | None = None,
     tag: str | None = None,
+    strict_judge: bool = False,
+    write_report: bool = True,
 ) -> dict[str, Any]:
-    """Execute multiple scenarios. Omit scenario_ids to run all valid files; optional tag filter."""
-    return await ops.execute_scenarios(project_root, scenario_ids=scenario_ids, tag=tag)
+    """Execute multiple scenarios; returns suite matrix + CI gate (hard: assert/script/status)."""
+    return await ops.execute_scenarios(
+        project_root,
+        scenario_ids=scenario_ids,
+        tag=tag,
+        strict_judge=strict_judge,
+        write_report=write_report,
+    )
 
 
 @mcp.tool

@@ -138,6 +138,7 @@ lk-sim execute-all --tag smoke --root /path/to/target
 | `export` | `export_scenario` |
 | `scenario-init` | `init_scenario` |
 | `execute` | `execute_scenario` |
+| `execute-all` | `execute_scenarios` (suite matrix + CI gate) |
 | `execute-all` | `execute_scenarios` |
 | `execute-dict` | `execute_scenario_dict` |
 | `status` | `get_run_status` |

@@ -124,14 +124,18 @@ def _build_markers(
                 detail_parts.append(f'say="{say}"')
             if waited:
                 detail_parts.append(f"waited={waited}ms")
-            # Point event with a short visible window so timeline ticks are clickable.
-            end = _clamp_end(start, start + max(400, min(waited, 2000) or 400), duration_ms)
+            # Barge-in: longer visible band so cut-in is easy to spot on the scrubber.
+            if barge:
+                span = 1200 if during else 700
+            else:
+                span = max(400, min(waited, 2000) or 400)
+            end = _clamp_end(start, start + span, duration_ms)
             markers.append(
                 {
                     "type": mtype,
                     "start_ms": start,
                     "end_ms": end,
-                    "label": label,
+                    "label": ("⚡ " if barge and during else "") + label,
                     "detail": " · ".join(detail_parts),
                     "step_id": step_id or None,
                     "say": say or None,

@@ -45,11 +45,14 @@ def _print(data: Any) -> None:
     typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
 
 
-def _run_failed(result: dict[str, Any]) -> bool:
-    if not result.get("executed") or result.get("status") != "done":
-        return True
-    verdict = ((result.get("summary") or {}).get("verdict") or {}).get("verdict")
-    return verdict == "fail"
+def _run_failed(result: dict[str, Any], *, strict_judge: bool = False) -> bool:
+    """CI gate: hard fails on status/assert/script; judge only if strict_judge."""
+    from .suite import evaluate_run_result
+
+    # Suite payload from execute-all
+    if result.get("suite") and isinstance(result.get("suite"), dict):
+        return not bool(result["suite"].get("ok"))
+    return not evaluate_run_result(result, strict_judge=strict_judge)["ok"]
 
 
 def _run(coro: Any) -> Any:
@@ -199,11 +202,23 @@ def scenario_init_cmd(
 
 
 @app.command()
-def execute(scenario_id: str, root: Optional[Path] = ROOT_OPTION) -> None:
+def execute(
+    scenario_id: str,
+    root: Optional[Path] = ROOT_OPTION,
+    strict_judge: bool = typer.Option(
+        False,
+        "--strict-judge",
+        help="Also fail CI exit if LLM PassCriteria judge verdict is fail",
+    ),
+) -> None:
     """Validate then execute one scenario from .agent-sim/scenarios/. (MCP: execute_scenario)"""
     result = _run(ops.execute_scenario(_root(root), scenario_id))
+    from .suite import evaluate_run_result
+
+    gate = evaluate_run_result(result, strict_judge=strict_judge)
+    result = {**result, "gate": gate}
     _print(result)
-    if _run_failed(result):
+    if _run_failed(result, strict_judge=strict_judge):
         raise typer.Exit(1)
 
 
@@ -214,18 +229,30 @@ def execute_all_cmd(
         help="Optional scenario ids; omit to run all valid scenarios",
     ),
     tag: Optional[str] = typer.Option(None, help="Only scenarios with this tag (when ids omitted)"),
+    strict_judge: bool = typer.Option(
+        False,
+        "--strict-judge",
+        help="Fail suite if any LLM judge verdict is fail (default: hard gates only)",
+    ),
+    no_report: bool = typer.Option(
+        False,
+        "--no-report",
+        help="Do not write suite-*.json/md under .agent-sim/reports/",
+    ),
     root: Optional[Path] = ROOT_OPTION,
 ) -> None:
-    """Execute multiple scenarios. (MCP: execute_scenarios)"""
+    """Execute multiple scenarios; print suite matrix + CI gate. (MCP: execute_scenarios)"""
     result = _run(
         ops.execute_scenarios(
             _root(root),
             scenario_ids=list(scenario_ids) if scenario_ids else None,
             tag=tag,
+            strict_judge=strict_judge,
+            write_report=not no_report,
         )
     )
     _print(result)
-    if any(_run_failed(r) for r in result.get("results", [])):
+    if _run_failed(result, strict_judge=strict_judge):
         raise typer.Exit(1)
 
 
@@ -252,6 +279,10 @@ def execute_dict_cmd(
         typer.secho("Scenario JSON must be an object", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
     result = _run(ops.execute_scenario_dict(_root(root), scenario))
+    from .suite import evaluate_run_result
+
+    gate = evaluate_run_result(result, strict_judge=False)
+    result = {**result, "gate": gate}
     _print(result)
     if _run_failed(result):
         raise typer.Exit(1)

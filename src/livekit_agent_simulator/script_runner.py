@@ -141,10 +141,10 @@ class ScriptRunner:
             self._firing.add(step.id)
         try:
             agent_active_ms = self.observer.agent_active_duration_ms() or 0
-            during_agent_speech = (
-                self.observer.agent_is_active_speaker
-                or agent_active_ms >= step.min_agent_active_ms
-            )
+            # Strict: "cut across" only if agent is the active speaker *now*.
+            # (Historical active_ms alone is not a live interrupt.)
+            during_agent_speech = bool(self.observer.agent_is_active_speaker)
+
             inject_error: str | None = None
             hold_silence_ms = int(step.silence_after_cue_ms or 0)
             if step.action == "wait":
@@ -159,6 +159,31 @@ class ScriptRunner:
             else:
                 kind = "sim.script.cue"
                 try:
+                    # Hard barge-in: always mix a short PCM blip into the mic first so
+                    # the agent STT / stereo L channel actually "cuts across" speech.
+                    # gemini_text alone is delayed TTS and rarely sounds like an interrupt.
+                    if step.barge_in and step.delivery != "room_pcm":
+                        try:
+                            await self.bridge.inject_cue(
+                                "[barge blip]",
+                                label=f"{step.label or step.id}-blip",
+                                delivery="room_pcm",
+                                asset="builtin:noise.blip",
+                                scenario_dir=self.scenario_dir,
+                            )
+                        except Exception as blip_err:  # noqa: BLE001
+                            self.writer.emit(
+                                "sim.script.error",
+                                spec={
+                                    "step_id": step.id,
+                                    "label": f"{step.label or step.id}-blip",
+                                    "delivery": "room_pcm",
+                                    "asset": "builtin:noise.blip",
+                                    "error": f"{type(blip_err).__name__}: {blip_err}",
+                                },
+                                source="sim.script",
+                                include_dialogue=False,
+                            )
                     await self.bridge.inject_cue(
                         step.say,
                         label=step.label or step.id,
@@ -182,6 +207,21 @@ class ScriptRunner:
                     )
                 if hold_silence_ms > 0 and inject_error is None:
                     self.bridge.suppress_persona_output(hold_silence_ms)
+                # Forensic: mark sim-initiated cut-in so summary/web show interrupted turns.
+                if step.barge_in and during_agent_speech and inject_error is None:
+                    self.writer.emit(
+                        "interruption",
+                        spec={
+                            "by": "sim",
+                            "barge_in": True,
+                            "step_id": step.id,
+                            "label": step.label or step.id,
+                            "say": step.say,
+                            "note": "Script barge-in while agent was active speaker",
+                        },
+                        source="sim.script",
+                        include_dialogue=False,
+                    )
             self.writer.emit(
                 kind,
                 spec={

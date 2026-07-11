@@ -6,6 +6,7 @@ Public ops (both surfaces expose these, same semantics):
     list_scenarios, list_plugins, list_cues, validate_scenario, export_scenario, init_scenario,
     execute_scenario, execute_scenarios, execute_scenario_dict,
     get_run_status, get_run_log, get_run_report, compare_runs, list_runs
+    # execute_scenarios also returns suite matrix + CI gate (see suite.py)
 
 Internal helpers (not exposed on CLI/MCP): ``_run_scenario``, ``_run_scenario_dict``.
 """
@@ -305,8 +306,17 @@ async def execute_scenarios(
     project_root: Path | str,
     scenario_ids: list[str] | None = None,
     tag: str | None = None,
+    *,
+    strict_judge: bool = False,
+    write_report: bool = True,
 ) -> dict[str, Any]:
-    """Run multiple scenarios. If scenario_ids omitted, runs all valid scenarios (optional tag filter)."""
+    """Run multiple scenarios + suite matrix / CI gate.
+
+    Hard gate (``suite.ok`` / exit): status, assert_verify, script_verify.
+    Judge fail is soft unless ``strict_judge=True``.
+    """
+    from .suite import build_suite_report, write_suite_report
+
     cfg = load_config(project_root)
     listed = _list_scenarios(cfg.scenarios_dir)
     if scenario_ids:
@@ -322,8 +332,25 @@ async def execute_scenarios(
         try:
             results.append(await execute_scenario(project_root, sid))
         except Exception as e:
-            results.append({"executed": False, "scenario_id": sid, "error": f"{type(e).__name__}: {e}"})
-    return {"count": len(results), "results": results}
+            results.append(
+                {
+                    "executed": False,
+                    "scenario_id": sid,
+                    "error": f"{type(e).__name__}: {e}",
+                }
+            )
+    suite = build_suite_report(results, strict_judge=strict_judge, tag=tag)
+    out: dict[str, Any] = {
+        "count": len(results),
+        "results": results,
+        "suite": suite,
+        "ok": suite["ok"],
+        "exit_code": suite["exit_code"],
+    }
+    if write_report:
+        paths = write_suite_report(suite, cfg.reports_dir)
+        out["suite_report"] = paths
+    return out
 
 
 async def get_run_status(project_root: Path | str, run_id: str) -> dict[str, Any]:

@@ -158,7 +158,7 @@ def test_build_markers_barge_silence_recovery(tmp_path: Path) -> None:
 
     barge = next(m for m in payload["markers"] if m["type"] == "barge_in")
     assert barge["start_ms"] == 3200  # 5200 - 2000
-    assert barge["label"] == "backchannel-barge"
+    assert "backchannel-barge" in barge["label"]
     assert barge["say"] == "uh-huh"
 
     wait = next(m for m in payload["markers"] if m["type"] == "silence_wait")
