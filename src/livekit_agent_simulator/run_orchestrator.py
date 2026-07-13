@@ -163,8 +163,12 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
 
             if cfg.observe.audio_recording_enabled:
                 recorder = LocalConversationRecorder()
+                # Pin audio t=0 as early as possible so pre-Gemini agent media
+                # (outbound greeting while sim-leg wait used to block) is on the timeline.
+                recorder.mark_start()
 
             # Observer on agent-room: transcripts + agent WAV R-channel (works for SIP 2-room).
+            # For outbound, agent_room was joined *before* dial inside OutboundSipSimLeg.
             observer = Observer(
                 leg_handle.agent_room,
                 writer,
@@ -188,7 +192,14 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 recorder=recorder,
             )
             if leg_handle.gemini_listen_sip:
+                # Prefer sim-room SIP track when hairpin lands there; also feed
+                # agent-room WebRTC so Gemini still hears the agent if sim-room
+                # never gets a SIP participant (common when call_to == agent DID).
                 bridge.watch_sip_audio_tracks()
+                if leg_handle.agent_room is not leg_handle.sim_room:
+                    bridge.watch_agent_tracks_on_room(
+                        leg_handle.agent_room, leg_handle.agent_identity
+                    )
             elif leg_handle.gemini_listen_identity:
                 bridge.watch_agent_tracks(leg_handle.gemini_listen_identity)
             else:

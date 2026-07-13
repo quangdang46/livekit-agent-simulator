@@ -139,6 +139,47 @@ class GeminiCallerBridge:
                 if pub.track is not None and pub.track.kind == rtc.TrackKind.KIND_AUDIO:
                     _maybe_queue(p, pub.track)
 
+    def watch_agent_tracks_on_room(
+        self, room: rtc.Room, agent_identity: str
+    ) -> None:
+        """Subscribe to agent audio on a *different* room than Gemini mic (SIP 2-room).
+
+        Outbound hairpin often never places a SIP track in sim-room (same DID as
+        agent inbound). Gemini still needs agent PCM to continue the conversation —
+        feed it from agent-room where the worker publishes WebRTC audio.
+        """
+
+        def _maybe_queue(p: rtc.RemoteParticipant, track: rtc.Track) -> None:
+            if p.identity != agent_identity:
+                return
+            if track.kind != rtc.TrackKind.KIND_AUDIO:
+                return
+            self._agent_track_queue.put_nowait(track)
+
+        @room.on("track_subscribed")
+        def _on_track(
+            track: rtc.Track, pub: rtc.RemoteTrackPublication, p: rtc.RemoteParticipant
+        ) -> None:
+            _maybe_queue(p, track)
+
+        for p in room.remote_participants.values():
+            if p.identity != agent_identity:
+                continue
+            for pub in p.track_publications.values():
+                if pub.track is not None and pub.track.kind == rtc.TrackKind.KIND_AUDIO:
+                    self._agent_track_queue.put_nowait(pub.track)
+
+        self.writer.emit(
+            "sim.agent_listen_room",
+            spec={
+                "agent_identity": agent_identity,
+                "listen": "agent_room",
+                "note": "Gemini ears on agent-room WebRTC (sim-room SIP track missing)",
+            },
+            source="sim",
+            include_dialogue=False,
+        )
+
     async def publish_mic(self) -> rtc.AudioSource:
         self._source = rtc.AudioSource(GEMINI_OUT_RATE, 1)
         track = rtc.LocalAudioTrack.create_audio_track("lk-sim-mic", self._source)

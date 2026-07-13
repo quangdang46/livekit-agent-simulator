@@ -200,6 +200,26 @@ class OutboundSipSimLeg:
             )
             await asyncio.sleep(prepare_ms / 1000)
 
+        # Join agent-room as observer *before* dial so we subscribe to agent audio
+        # from the first greeting. LiveKit does not buffer — late join misses PCM
+        # (see livekit#2827 / agents#5932: subscriber must be ready before publisher).
+        agent_room = await adapter.connect_participant(
+            agent_room_name,
+            identity=f"lk-sim-obs-{ctx.run_id[:8]}",
+            name="Agent Simulator Observer",
+        )
+        writer.emit(
+            "sim.observer_joined",
+            spec={
+                "room": agent_room_name,
+                "mode": "outbound_sip",
+                "note": "observer joined before dial to capture agent greeting",
+            },
+            include_dialogue=False,
+        )
+        # Brief settle for auto-subscribe / DTLS before media starts.
+        await asyncio.sleep(0.25)
+
         sip_identity = f"sip-out-{ctx.run_id[:12]}"
         writer.emit(
             "outbound.dial_started",
@@ -254,9 +274,11 @@ class OutboundSipSimLeg:
         )
 
         # Wait for inbound SIP leg on sim-room (hairpin answer side), best-effort.
+        # Keep this short — do not block recording/Gemini for 15s when DID is not
+        # provisioned for sim-room (common when call_to == agent inbound number).
         try:
             sim_sip_id = await adapter.wait_for_sip_participant(
-                sim_room_name, timeout_ms=max(15_000, tel.prepare_ms + 10_000)
+                sim_room_name, timeout_ms=min(3_000, max(1_500, tel.prepare_ms))
             )
             writer.emit(
                 "sip.participant_connected",
@@ -270,17 +292,10 @@ class OutboundSipSimLeg:
                     "status": "timeout_or_missing",
                     "detail": f"{type(e).__name__}: {e}",
                     "note": "Ensure sim inbound DID dispatch rule targets this sim-room "
-                    f"({sim_room_name}) for full hairpin audio.",
+                    f"({sim_room_name}) for full hairpin audio. Gemini/record use agent-room.",
                 },
                 include_dialogue=False,
             )
-
-        # Observer joins agent-room (transcripts / tools live with the agent).
-        agent_room = await adapter.connect_participant(
-            agent_room_name,
-            identity=f"lk-sim-obs-{ctx.run_id[:8]}",
-            name="Agent Simulator Observer",
-        )
 
         return SimLegHandle(
             agent_room=agent_room,
