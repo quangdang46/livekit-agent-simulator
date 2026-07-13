@@ -56,6 +56,20 @@ def test_load_valid_config(tmp_path):
     assert config_snapshot(cfg)["observe"]["lk_agent_session"] is True
 
 
+def test_record_audio_defaults_true_when_omitted(tmp_path):
+    cfg_text = VALID_CONFIG.replace("  record_audio: true\n", "")
+    cfg = load_config(_write(tmp_path, cfg_text))
+    assert cfg.observe.record_audio is True
+    assert cfg.observe.audio_recording_enabled is True
+
+
+def test_record_audio_can_be_disabled(tmp_path):
+    cfg_text = VALID_CONFIG.replace("  record_audio: true", "  record_audio: false")
+    cfg = load_config(_write(tmp_path, cfg_text))
+    assert cfg.observe.record_audio is False
+    assert cfg.observe.audio_recording_enabled is False
+
+
 def test_missing_config_file(tmp_path):
     with pytest.raises(ConfigError, match="lk-sim init"):
         load_config(tmp_path)

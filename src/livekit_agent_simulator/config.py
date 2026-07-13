@@ -72,7 +72,7 @@ class ObserveConfig:
     lk_agent_session: bool = True
     # Local-first stereo WAV under reports/<run-id>/conversation.wav (no Egress).
     # L = sim caller, R = agent.
-    record_audio: bool = False
+    record_audio: bool = True
     data_topics: list[str] = field(default_factory=list)
     tool_event_patterns: list[ToolEventPattern] = field(default_factory=list)
     # Sim wire format: payload `type` values treated as transcript turns on data topics.
@@ -203,7 +203,7 @@ def load_config(project_root: Path | str) -> SimConfig:
         timezone=str(obs_raw.get("timezone", DEFAULT_TIMEZONE)),
         lk_transcription=bool(obs_raw.get("lk_transcription", True)),
         lk_agent_session=bool(obs_raw.get("lk_agent_session", True)),
-        record_audio=bool(obs_raw.get("record_audio", False)),
+        record_audio=bool(obs_raw.get("record_audio", True)),
         data_topics=[str(t) for t in (obs_raw.get("data_topics") or [])],
         tool_event_patterns=patterns,
         transcript_payload_types=[

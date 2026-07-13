@@ -277,7 +277,7 @@ Target-only data lives under `<target>/.agent-sim/` (**gitignored**). Created by
 | `simulator.google_api_key` | yes | Gemini key for sim caller (+ judge) |
 | `simulator.voice.model` / `voice` / `language` | no | Defaults: flash-live, Puck, `en-US` |
 | `judge.model` | no | If set + PassCriteria → post-run LLM judge |
-| `observe.record_audio` | no | Local stereo WAV (L=sim, R=agent); no Egress |
+| `observe.record_audio` | no (default `true`) | Local stereo WAV (L=sim, R=agent); no Egress |
 | `observe.data_topics` | no | Empty = all topics |
 | `observe.tool_event_patterns` | no | Map data payloads → tool start/end/error |
 
@@ -423,7 +423,7 @@ Set `simulator.google_api_key` in `.agent-sim/config.yaml`. The sim caller uses 
 
 ### No audio in report player
 
-Enable `observe.record_audio: true`, re-run a scenario, then:
+With `observe.record_audio` enabled (default `true`): `reports/<run-id>/conversation.wav`
 
 ```bash
 lk-sim web --root /path/to/target
