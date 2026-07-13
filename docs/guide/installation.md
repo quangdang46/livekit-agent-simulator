@@ -233,7 +233,7 @@ observe:
 **How the agent should obtain values:**
 
 1. **Try env first** (with user permission): read `.env` / `.env.local` in `TARGET_ROOT` and map keys below.
-2. **If any required field is still empty**, use **structured user questions** (§4.1) — do not invent values. Paste secrets into `config.yaml` or read `.env`; never put API keys in multiple-choice option labels.
+2. **If any required field is still empty**, call **`AskQuestion`** (§4.1) — do not invent values. Paste secrets into `config.yaml` or read `.env`; never put API keys in `AskQuestion` option labels.
 3. Never print full secrets in chat; confirm only that fields are **set**.
 
 | Env var (target repo) | `config.yaml` key |
@@ -252,23 +252,21 @@ Per-scenario dispatch override (if the product needs opaque metadata):
 
 More consumer wiring notes: [portability.md](../portability.md).
 
-### 4.1 Structured user questions (when env is empty or ambiguous)
+### 4.1 `AskQuestion` tool (when env is empty or ambiguous)
 
-When setup is blocked on a **user decision**, collect answers via your host’s **structured ask-user**
-flow (multiple-choice form) if available; otherwise ask the same prompts in chat.
-**Not** for typing secrets — use this for **which repo**, **credential source**, **toggles**, and **optional wiring**.
+When setup is blocked on a **user decision**, call the coding agent’s **`AskQuestion`** tool
+(structured multiple-choice form). Available on **Cursor, Claude Code, Codex, Windsurf**, and similar hosts.
+**Not** for typing secrets — use it for **which repo**, **credential source**, **toggles**, and **optional wiring**.
 
 Rules:
 
-- **≤ 3 questions per round** (batch related choices).
+- **≤ 3 questions per `AskQuestion` call** (batch related choices).
 - Each question needs **≥ 2 options**; put the recommended default **first** and append `(Recommended)` to its label.
 - User can always pick **Other** for a custom path, `agent_name`, `customAgentId`, etc.
 - **Secrets** (`api_key`, `api_secret`, `google_api_key`): never list real values as options. Either read `.env` after user picks “read env”, or ask them to edit `config.yaml` / use **Other** for one-off paste.
+- If the host has no `AskQuestion`, ask the same prompts in chat.
 
-Payload shape below is **host-agnostic** — map fields to whatever your agent UI expects
-(e.g. a dedicated ask-user tool, MCP form, or plain numbered options in chat).
-
-#### Turn 1 — typical batch (after `init`, before editing config)
+#### Turn 1 — typical `AskQuestion` (after `init`, before editing config)
 
 ```json
 {
@@ -306,11 +304,11 @@ Payload shape below is **host-agnostic** — map fields to whatever your agent U
 
 **After answers:** write `config.yaml`. If `credentials=read_env`, map env vars (table above). If `i_edit_yaml`, stop and tell user which keys are still `YOUR_*` placeholders.
 
-**Gemini key hint** (chat or comment in yaml — not a multiple-choice option):
+**Gemini key hint** (chat or comment in yaml — not an `AskQuestion` option):
 
 > Create at [Google AI Studio](https://aistudio.google.com/apikey). Same key as worker `GOOGLE_API_KEY` is fine. Needs Gemini Live access for `gemini-3.1-flash-live-preview`.
 
-#### Turn 2 — only if still ambiguous (second batch, optional)
+#### Turn 2 — only if still ambiguous (second `AskQuestion`, optional)
 
 ```json
 {
@@ -351,7 +349,7 @@ Payload shape below is **host-agnostic** — map fields to whatever your agent U
 
 **Order:** `TARGET_ROOT` → credentials → toggles → optional wiring → preflight → confirm execute.
 
-| Bucket | Ask user (structured or chat) | Maps to / action |
+| Bucket | Use `AskQuestion` for | Maps to / action |
 |--------|----------------------|------------------|
 | **A. Target repo** | Which folder is `TARGET_ROOT` | `--root` on every command |
 | **B. Credentials** | Read `.env` vs user edits yaml | `livekit.*`, `simulator.google_api_key` |
