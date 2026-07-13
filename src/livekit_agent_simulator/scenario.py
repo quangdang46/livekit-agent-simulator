@@ -9,6 +9,8 @@ a section keyed by `kind`:
     {"kind":"Simulator","spec":{"max_turns":6,"timeout_s":120,"first_speaker":"agent"}}
     {"kind":"Execute","spec":{"max_turns":2,"timeout_s":90,"first_speaker":"user"}}
     {"kind":"Dispatch","spec":{"metadata":"{\"yourProjectKey\":\"value\"}"}}
+    {"kind":"Caller","spec":{"mode":"webrtc_sim"}}
+    {"kind":"Telephony","spec":{"call_to":"+1555…","dial_in":"+1555…"}}
     {"kind":"PassCriteria","spec":{"criteria":["agent greets the caller politely"]}}
     {"kind":"Script","spec":{"steps":[...],"verify":{...}}}
     {"kind":"Script","spec":{"steps":[{"id":"backchannel","trigger":"agent_speaking","delay_ms":800,"say":"uh-huh","label":"backchannel-during-agent"}],"verify":{"require_during_agent_speech":true,"min_agent_finals_after_first_cue":1}}}
@@ -36,7 +38,12 @@ KNOWN_KINDS = {
     "Behavior",
     "Plugins",
     "Assert",
+    "Caller",
+    "Telephony",
 }
+
+CALLER_MODES = frozenset({"webrtc_sim", "inbound_sip", "outbound_sip", "agent_dials"})
+SIP_MODES = frozenset({"inbound_sip", "outbound_sip", "agent_dials"})
 
 
 def strip_extension_keys(obj: dict[str, Any]) -> dict[str, Any]:
@@ -72,6 +79,42 @@ class DispatchSpec:
 
 
 @dataclass
+class CallerSpec:
+    """Per-scenario transport mode (never stored in shared config.yaml)."""
+
+    mode: str = "webrtc_sim"
+
+
+@dataclass
+class TelephonySpec:
+    """Per-scenario SIP dial params — overrides config.telephony when set."""
+
+    call_to: str | None = None
+    dial_in: str | None = None
+    sip_trunk_id: str | None = None
+    prepare_ms: int | None = None
+    wait_until_answered: bool | None = None
+    krisp_enabled: bool | None = None
+    agent_room: str | None = None
+    agent_room_name_template: str | None = None
+
+
+@dataclass
+class EffectiveTelephony:
+    """Resolved telephony after scenario > config > built-in merge."""
+
+    outbound_trunk_id: str | None
+    inbound_trunk_id: str | None
+    call_to: str | None
+    dial_in: str | None
+    prepare_ms: int
+    wait_until_answered: bool
+    krisp_enabled: bool
+    agent_room: str | None
+    agent_room_name_template: str | None
+
+
+@dataclass
 class Scenario:
     id: str
     path: Path
@@ -82,6 +125,8 @@ class Scenario:
     simulator: SimulatorSpec = field(default_factory=SimulatorSpec)
     execute: ExecuteSpec | None = None
     dispatch: DispatchSpec | None = None
+    caller: CallerSpec | None = None
+    telephony: TelephonySpec | None = None
     pass_criteria: list[str] = field(default_factory=list)
     script_steps: list[Any] = field(default_factory=list)
     script_verify: ScriptVerifySpec | None = None
@@ -89,6 +134,11 @@ class Scenario:
     asserts: AssertSpec | None = None
     # Raw Behavior.spec (Hamming-style policy); compiled into script_steps at parse end.
     behavior_spec: dict[str, Any] | None = None
+
+    def effective_caller_mode(self) -> str:
+        if self.caller and self.caller.mode:
+            return self.caller.mode
+        return "webrtc_sim"
 
     @property
     def run_spec(self) -> SimulatorSpec:
@@ -132,6 +182,8 @@ class Scenario:
             "dispatch": None
             if self.dispatch is None
             else {"metadata_set": bool(self.dispatch.metadata)},
+            "caller_mode": self.effective_caller_mode(),
+            "telephony_set": self.telephony is not None,
             "run": {
                 "max_turns": self.run_spec.max_turns,
                 "timeout_s": self.run_spec.timeout_s,
@@ -326,6 +378,35 @@ def parse_scenario(path: Path | str) -> Scenario:
             scenario.dispatch = DispatchSpec(
                 metadata=str(meta).strip() if meta is not None and str(meta).strip() else None,
             )
+        elif kind == "Caller":
+            mode = str(spec.get("mode", "webrtc_sim")).strip().lower()
+            if mode not in CALLER_MODES:
+                raise ScenarioError(
+                    f"{path}:{line_no}: Caller.spec.mode must be one of "
+                    f"{sorted(CALLER_MODES)} (got {mode!r})"
+                )
+            scenario.caller = CallerSpec(mode=mode)
+        elif kind == "Telephony":
+            def _opt(key: str) -> str | None:
+                v = spec.get(key)
+                if v is None:
+                    return None
+                s = str(v).strip()
+                return s or None
+
+            prepare = spec.get("prepare_ms")
+            wait = spec.get("wait_until_answered")
+            krisp = spec.get("krisp_enabled")
+            scenario.telephony = TelephonySpec(
+                call_to=_opt("call_to"),
+                dial_in=_opt("dial_in"),
+                sip_trunk_id=_opt("sip_trunk_id") or _opt("outbound_trunk_id"),
+                prepare_ms=int(prepare) if prepare is not None else None,
+                wait_until_answered=bool(wait) if wait is not None else None,
+                krisp_enabled=bool(krisp) if krisp is not None else None,
+                agent_room=_opt("agent_room"),
+                agent_room_name_template=_opt("agent_room_name_template"),
+            )
         elif kind == "PassCriteria":
             scenario.pass_criteria = [str(c) for c in spec.get("criteria", [])]
         elif kind == "Script":
@@ -362,6 +443,19 @@ def parse_scenario(path: Path | str) -> Scenario:
         except json.JSONDecodeError as e:
             raise ScenarioError(f"{path}: Dispatch.spec.metadata must be valid JSON string — {e}") from e
 
+    mode = scenario.effective_caller_mode()
+    if mode not in CALLER_MODES:
+        raise ScenarioError(f"{path}: Caller.mode {mode!r} is not supported")
+    if mode == "outbound_sip":
+        has_call_to = bool(scenario.telephony and scenario.telephony.call_to)
+        if not has_call_to:
+            # Allowed: config telephony.sim_inbound_number may supply it at run time.
+            pass
+    if mode == "inbound_sip":
+        has_dial_in = bool(scenario.telephony and scenario.telephony.dial_in)
+        if not has_dial_in:
+            pass  # config.telephony.dial_in may supply at run time
+
     # Hamming-style: compile speech_conditions + Behavior into Script (explicit Script wins by id).
     try:
         from .behavior_compile import apply_caller_behavior
@@ -377,6 +471,96 @@ def parse_scenario(path: Path | str) -> Scenario:
         raise ScenarioError(str(e)) from e
 
     return scenario
+
+
+def effective_telephony(scenario: Scenario, cfg: Any) -> EffectiveTelephony:
+    """Merge scenario Telephony over config.telephony (scenario wins when set)."""
+    tel_cfg = getattr(cfg, "telephony", None)
+    sc = scenario.telephony
+
+    def pick_str(sc_val: str | None, cfg_val: str | None) -> str | None:
+        if sc_val is not None and str(sc_val).strip():
+            return str(sc_val).strip()
+        if cfg_val is not None and str(cfg_val).strip():
+            return str(cfg_val).strip()
+        return None
+
+    outbound = pick_str(
+        sc.sip_trunk_id if sc else None,
+        getattr(tel_cfg, "outbound_trunk_id", None) if tel_cfg else None,
+    )
+    inbound = pick_str(
+        None,
+        getattr(tel_cfg, "inbound_trunk_id", None) if tel_cfg else None,
+    )
+    call_to = pick_str(
+        sc.call_to if sc else None,
+        getattr(tel_cfg, "sim_inbound_number", None) if tel_cfg else None,
+    )
+    dial_in = pick_str(
+        sc.dial_in if sc else None,
+        getattr(tel_cfg, "dial_in", None) if tel_cfg else None,
+    )
+    prepare_ms = 3000
+    if tel_cfg is not None and getattr(tel_cfg, "prepare_ms", None) is not None:
+        prepare_ms = int(tel_cfg.prepare_ms)
+    if sc is not None and sc.prepare_ms is not None:
+        prepare_ms = int(sc.prepare_ms)
+
+    wait_answered = True
+    if tel_cfg is not None:
+        wait_answered = bool(getattr(tel_cfg, "wait_until_answered", True))
+    if sc is not None and sc.wait_until_answered is not None:
+        wait_answered = bool(sc.wait_until_answered)
+
+    krisp = False
+    if tel_cfg is not None:
+        krisp = bool(getattr(tel_cfg, "krisp_enabled", False))
+    if sc is not None and sc.krisp_enabled is not None:
+        krisp = bool(sc.krisp_enabled)
+
+    agent_room = pick_str(
+        sc.agent_room if sc else None,
+        getattr(tel_cfg, "agent_room", None) if tel_cfg else None,
+    )
+    agent_room_tmpl = pick_str(
+        sc.agent_room_name_template if sc else None,
+        getattr(tel_cfg, "agent_room_name_template", None) if tel_cfg else None,
+    )
+    return EffectiveTelephony(
+        outbound_trunk_id=outbound,
+        inbound_trunk_id=inbound,
+        call_to=call_to,
+        dial_in=dial_in,
+        prepare_ms=prepare_ms,
+        wait_until_answered=wait_answered,
+        krisp_enabled=krisp,
+        agent_room=agent_room,
+        agent_room_name_template=agent_room_tmpl,
+    )
+
+
+def validate_telephony_for_mode(scenario: Scenario, cfg: Any) -> None:
+    """Fail-fast if SIP mode is missing required trunk/number after merge."""
+    mode = scenario.effective_caller_mode()
+    if mode not in SIP_MODES:
+        return
+    tel = effective_telephony(scenario, cfg)
+    if mode in ("outbound_sip", "inbound_sip") and not tel.outbound_trunk_id:
+        raise ScenarioError(
+            f"Scenario `{scenario.id}` mode={mode} requires telephony.outbound_trunk_id "
+            f"in config or Telephony.sip_trunk_id in the scenario."
+        )
+    if mode == "outbound_sip" and not tel.call_to:
+        raise ScenarioError(
+            f"Scenario `{scenario.id}` mode=outbound_sip requires Telephony.call_to "
+            f"or config telephony.sim_inbound_number (number/DID Gemini answers)."
+        )
+    if mode == "inbound_sip" and not tel.dial_in:
+        raise ScenarioError(
+            f"Scenario `{scenario.id}` mode=inbound_sip requires Telephony.dial_in "
+            f"or config telephony.dial_in (agent-side inbound DID)."
+        )
 
 
 def list_scenarios(scenarios_dir: Path) -> list[dict[str, Any]]:
@@ -395,6 +579,7 @@ def list_scenarios(scenarios_dir: Path) -> list[dict[str, Any]]:
                     "first_speaker": s.run_spec.first_speaker,
                     "has_execute": s.execute is not None,
                     "has_dispatch": s.dispatch is not None and bool(s.dispatch.metadata),
+                    "caller_mode": s.effective_caller_mode(),
                     "pass_criteria": len(s.pass_criteria),
                     "script_steps": len(s.script_steps),
                 }

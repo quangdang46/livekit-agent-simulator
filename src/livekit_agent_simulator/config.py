@@ -95,6 +95,24 @@ class CuesConfig:
 
 
 @dataclass
+class TelephonyConfig:
+    """Optional LiveKit SIP defaults (mode is never set here — use scenario Caller.mode).
+
+    Scenario ``Telephony.*`` fields override these. Omit the whole block for WebRTC-only targets.
+    """
+
+    outbound_trunk_id: str | None = None
+    inbound_trunk_id: str | None = None
+    dial_in: str | None = None
+    sim_inbound_number: str | None = None
+    prepare_ms: int = 3_000
+    wait_until_answered: bool = True
+    krisp_enabled: bool = False
+    agent_room: str | None = None
+    agent_room_name_template: str | None = None
+
+
+@dataclass
 class SimConfig:
     project_root: Path
     livekit: LiveKitConfig
@@ -103,6 +121,7 @@ class SimConfig:
     judge: JudgeConfig | None = None
     project: str | None = None
     cues: CuesConfig = field(default_factory=CuesConfig)
+    telephony: TelephonyConfig = field(default_factory=TelephonyConfig)
 
     @property
     def dot_dir(self) -> Path:
@@ -228,6 +247,34 @@ def load_config(project_root: Path | str) -> SimConfig:
             aliases={str(k): str(v) for k, v in aliases_raw.items()},
         )
 
+    telephony = TelephonyConfig()
+    tel_raw = raw.get("telephony")
+    if isinstance(tel_raw, dict):
+        def _opt_str(key: str) -> str | None:
+            v = tel_raw.get(key)
+            if v is None:
+                return None
+            s = str(v).strip()
+            return s or None
+
+        wu = tel_raw.get("wait_until_answered")
+        if wu is None:
+            wait_answered = True
+        else:
+            wait_answered = bool(wu)
+
+        telephony = TelephonyConfig(
+            outbound_trunk_id=_opt_str("outbound_trunk_id") or _opt_str("sip_trunk_id"),
+            inbound_trunk_id=_opt_str("inbound_trunk_id"),
+            dial_in=_opt_str("dial_in"),
+            sim_inbound_number=_opt_str("sim_inbound_number"),
+            prepare_ms=int(tel_raw.get("prepare_ms", 3_000)),
+            wait_until_answered=wait_answered,
+            krisp_enabled=bool(tel_raw.get("krisp_enabled", False)),
+            agent_room=_opt_str("agent_room"),
+            agent_room_name_template=_opt_str("agent_room_name_template"),
+        )
+
     return SimConfig(
         project_root=project_root,
         livekit=livekit,
@@ -236,6 +283,7 @@ def load_config(project_root: Path | str) -> SimConfig:
         judge=judge,
         project=raw.get("project"),
         cues=cues,
+        telephony=telephony,
     )
 
 
@@ -244,6 +292,7 @@ def config_snapshot(cfg: SimConfig) -> dict[str, Any]:
     gaps: list[str] = []
     if not cfg.observe.lk_agent_session and not cfg.observe.tool_event_patterns:
         gaps.append("tool_events")
+    tel = cfg.telephony
     return {
         "project": cfg.project,
         "livekit": {
@@ -269,6 +318,15 @@ def config_snapshot(cfg: SimConfig) -> dict[str, Any]:
             "record_audio": cfg.observe.audio_recording_enabled,
             "data_topics": cfg.observe.data_topics,
             "silence_threshold_ms": cfg.observe.silence_threshold_ms,
+        },
+        "telephony": {
+            "outbound_trunk_set": bool(tel.outbound_trunk_id),
+            "inbound_trunk_set": bool(tel.inbound_trunk_id),
+            "dial_in_set": bool(tel.dial_in),
+            "sim_inbound_number_set": bool(tel.sim_inbound_number),
+            "prepare_ms": tel.prepare_ms,
+            "wait_until_answered": tel.wait_until_answered,
+            "krisp_enabled": tel.krisp_enabled,
         },
         "observe_gaps": gaps,
     }

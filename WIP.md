@@ -489,3 +489,7 @@ SIP attributes to surface in report ([sip-participant doc](https://docs.livekit.
 | Telephony unified design (SimLeg) | **Done** |
 | Inbound + outbound research | **Done** (same pattern) |
 | Core implementation | Not started — reply **go ahead** to implement T0+T1+T2 |
+
+## Telephony SimLeg (2026-07-13)
+
+Implemented portable SimLeg: webrtc_sim / inbound_sip / outbound_sip / agent_dials. See docs/telephony.md and docs/plans/PLAN-20260713-telephony-simleg.md.

@@ -53,3 +53,17 @@ observe:
 #     - shared-audio          # relative to project root (optional extra search dirs)
 #   aliases:
 #     office: office_loop.wav # short name → file under .agent-sim/cues/ or dirs
+
+# Optional LiveKit SIP defaults for inbound_sip / outbound_sip scenarios.
+# Mode is NEVER set here — use scenario {"kind":"Caller","spec":{"mode":"…"}} instead.
+# See docs/telephony.md. Omit this whole block for WebRTC-only targets.
+# telephony:
+#   outbound_trunk_id: "ST_xxxxxxxxxxxx"   # CreateSIPParticipant trunk
+#   inbound_trunk_id: "ST_yyyyyyyyyyyy"    # optional metadata / preflight
+#   dial_in: "+15551234567"                # default agent inbound DID (inbound_sip)
+#   sim_inbound_number: "+15559876543"     # default Gemini callee DID (outbound_sip)
+#   prepare_ms: 3000
+#   wait_until_answered: true
+#   krisp_enabled: false
+#   # agent_room: "fixed-inbound-room"     # optional if dispatch rule room is known
+#   # agent_room_name_template: "call-{run_id}"

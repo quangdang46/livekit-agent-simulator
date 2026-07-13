@@ -1,0 +1,9 @@
+// Outbound SIP: Gemini answers as the human callee.
+// Requires target .agent-sim/config.yaml telephony.outbound_trunk_id + call_to (or sim_inbound_number).
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"outbound-callee-sim","locale":"en-US","tags":["telephony","outbound"]}}
+{"kind":"Caller","spec":{"mode":"outbound_sip"}}
+{"kind":"Telephony","spec":{"call_to":"+15559876543"}}
+{"kind":"Persona","spec":{"name":"Alex","brief":"You just answered a phone call. You are a real person, slightly busy. Be brief and natural.","goals":["Understand why they called","End politely if not interested"],"style":"short, natural phone speech"}}
+{"kind":"Execute","spec":{"timeout_s":120,"first_speaker":"user","max_turns":10}}
+{"kind":"Assert","spec":{"sip":{"participant_present":true,"dial_answered":true,"call_status_any":["active"]},"transcript":[{"role":"agent","contains_any":["a","e","i","o","u"]}]}}
+{"kind":"PassCriteria","spec":{"criteria":["The agent spoke to the callee","The conversation was understandable"]}}

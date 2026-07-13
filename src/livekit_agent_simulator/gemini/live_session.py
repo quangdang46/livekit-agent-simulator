@@ -78,12 +78,17 @@ class GeminiCallerBridge:
     # ------------------------------------------------------------------ setup
 
     def watch_agent_tracks(self, agent_identity: str) -> None:
+        """Subscribe to a specific remote participant's audio (WebRTC agent path)."""
+
+        def _maybe_queue(p: rtc.RemoteParticipant, track: rtc.Track) -> None:
+            if p.identity == agent_identity and track.kind == rtc.TrackKind.KIND_AUDIO:
+                self._agent_track_queue.put_nowait(track)
+
         @self.room.on("track_subscribed")
         def _on_track(
             track: rtc.Track, pub: rtc.RemoteTrackPublication, p: rtc.RemoteParticipant
         ) -> None:
-            if p.identity == agent_identity and track.kind == rtc.TrackKind.KIND_AUDIO:
-                self._agent_track_queue.put_nowait(track)
+            _maybe_queue(p, track)
 
         # Track may already be subscribed before this handler attaches.
         for p in self.room.remote_participants.values():
@@ -92,6 +97,47 @@ class GeminiCallerBridge:
             for pub in p.track_publications.values():
                 if pub.track is not None and pub.track.kind == rtc.TrackKind.KIND_AUDIO:
                     self._agent_track_queue.put_nowait(pub.track)
+
+    def watch_sip_audio_tracks(self) -> None:
+        """Subscribe to any remote SIP (or non-local) audio on sim_room (hairpin path).
+
+        On Cloud hairpin, agent audio arrives as the SIP participant track in sim-room.
+        We accept the first remote audio track that is not our own publish.
+        """
+
+        def _is_sip_like(p: rtc.RemoteParticipant) -> bool:
+            kind = getattr(p, "kind", None)
+            try:
+                from livekit.protocol.models import ParticipantInfo
+
+                kind_name = ParticipantInfo.Kind.Name(kind) if kind is not None else ""
+                if kind_name == "SIP":
+                    return True
+            except Exception:
+                pass
+            attrs = getattr(p, "attributes", None) or {}
+            if isinstance(attrs, dict) and any(str(k).startswith("sip.") for k in attrs):
+                return True
+            # Fallback: any remote participant audio on sim-room (hairpin leg).
+            return True
+
+        def _maybe_queue(p: rtc.RemoteParticipant, track: rtc.Track) -> None:
+            if track.kind != rtc.TrackKind.KIND_AUDIO:
+                return
+            if not _is_sip_like(p):
+                return
+            self._agent_track_queue.put_nowait(track)
+
+        @self.room.on("track_subscribed")
+        def _on_track(
+            track: rtc.Track, pub: rtc.RemoteTrackPublication, p: rtc.RemoteParticipant
+        ) -> None:
+            _maybe_queue(p, track)
+
+        for p in self.room.remote_participants.values():
+            for pub in p.track_publications.values():
+                if pub.track is not None and pub.track.kind == rtc.TrackKind.KIND_AUDIO:
+                    _maybe_queue(p, pub.track)
 
     async def publish_mic(self) -> rtc.AudioSource:
         self._source = rtc.AudioSource(GEMINI_OUT_RATE, 1)
@@ -285,7 +331,13 @@ class GeminiCallerBridge:
     # -------------------------------------------------------- agent -> gemini
 
     async def _pump_agent_audio(self, session: genai.live.AsyncSession) -> None:
-        """Forward the agent's audio track (resampled to 16k) into Gemini."""
+        """Forward the agent's audio track (resampled to 16k) into Gemini.
+
+        Recording of agent audio prefers Observer on agent-room (see run_orchestrator).
+        We still push_agent here as a fallback for single-room WebRTC when Observer
+        and bridge share the same track path (duplicate pushes are fine — wall-clock
+        recorder pads gaps; overlapping audio is rare because only one pump runs).
+        """
         while True:
             track = await self._agent_track_queue.get()
             self.writer.emit(
@@ -299,7 +351,13 @@ class GeminiCallerBridge:
                 async for frame_event in stream:
                     frame = frame_event.frame
                     pcm = bytes(frame.data)
-                    if self.recorder is not None:
+                    # R-channel: Observer records from agent-room when attached with
+                    # recorder. Fallback here only if Observer is not recording any track
+                    # (single-room WebRTC still works if observer record fails to start).
+                    obs_recording = bool(
+                        getattr(self.observer, "_recording_track_sids", None)
+                    )
+                    if self.recorder is not None and not obs_recording:
                         self.recorder.push_agent(pcm, GEMINI_IN_RATE)
                     await session.send_realtime_input(
                         audio=types.Blob(

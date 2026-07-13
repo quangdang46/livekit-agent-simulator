@@ -1,0 +1,9 @@
+// Inbound SIP: Gemini dials as the human caller into the agent DID.
+// Requires target telephony.outbound_trunk_id + dial_in (agent inbound number).
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"inbound-caller-sim","locale":"en-US","tags":["telephony","inbound"]}}
+{"kind":"Caller","spec":{"mode":"inbound_sip"}}
+{"kind":"Telephony","spec":{"dial_in":"+15551234567"}}
+{"kind":"Persona","spec":{"name":"Jordan","brief":"You are calling support about a recent charge on your account. Be polite and concise.","goals":["Explain the billing question","Get a clear next step"],"style":"polite, short sentences"}}
+{"kind":"Execute","spec":{"timeout_s":120,"first_speaker":"user","max_turns":10}}
+{"kind":"Assert","spec":{"sip":{"participant_present":true,"dial_answered":true,"call_status_any":["active"]},"transcript":[{"role":"agent","contains_any":["a","e","i","o","u"]}]}}
+{"kind":"PassCriteria","spec":{"criteria":["The agent responded to the inbound caller","The agent could be understood"]}}

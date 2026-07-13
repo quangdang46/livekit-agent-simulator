@@ -14,3 +14,6 @@ build/
 web/node_modules/
 web/dist/
 templates/report-player/
+
+# Cloned reference repos (telephony plan prior art)
+references/

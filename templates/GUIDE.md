@@ -17,6 +17,7 @@ Target-only data lives under `<target>/.agent-sim/` (config, scenarios, reports,
 | Consumer dispatch / data topics / tool patterns | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
 | Caller barge / silence / hang-up patterns | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/caller-pattern-plan.md |
 | Package rules for coding agents | https://github.com/quangdang46/livekit-agent-simulator/blob/main/AGENTS.md |
+| Telephony WebRTC / inbound / outbound SIP | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/telephony.md |
 | WAV cue format | https://github.com/quangdang46/livekit-agent-simulator/blob/main/templates/cues/README.md |
 
 ---
@@ -71,11 +72,15 @@ Created by `init`. **Gitignored.** Paste secrets here (no env substitution in v1
 | `observe.lk_agent_session` | no | Default `true`; SDK tools, state, errors, usage + final chat history via `lk.agent.session` |
 | `observe.data_topics` | no | Empty = all data topics; else filter |
 | `observe.tool_event_patterns` | no | Fallback for non-SDK custom data payloads → `tool.start` / `tool.end` / `tool.error` |
+| `telephony.*` | no | Optional SIP defaults (`outbound_trunk_id`, `dial_in`, `sim_inbound_number`, …). **Mode is never here** — use scenario `Caller.mode`. See `docs/telephony.md`. |
 
 **Opaque dispatch:** `dispatch_metadata` and scenario `Dispatch.spec.metadata` are passed through
-as JSON strings. Core **never** parses consumer keys (e.g. product agent ids). If the worker
-bootstraps from dispatch metadata (e.g. `customAgentId`), set `livekit.dispatch_metadata` or
+as JSON strings. Core **never** parses consumer keys (e.g. product agent ids). If the agent
+bootstraps from dispatch metadata, set `livekit.dispatch_metadata` or
 per-scenario `Dispatch` — see https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md .
+
+**Telephony modes** (scenario only): `webrtc_sim` (default) · `inbound_sip` · `outbound_sip` · `agent_dials`.
+Templates: `outbound-callee-sim.jsonl`, `inbound-caller-sim.jsonl`. Full guide: `docs/telephony.md`.
 
 ### Voice, language & call recording
 
@@ -159,9 +164,11 @@ lk-sim scenario-init my-case --root /path/to/target
 | `Simulator` | no | Defaults; overridden by Execute |
 | `Execute` | recommended | `max_turns`, `timeout_s`, `first_speaker` |
 | `Dispatch` | no | Per-scenario opaque metadata JSON string |
+| `Caller` | no | Transport mode: `webrtc_sim` (default) · `inbound_sip` · `outbound_sip` · `agent_dials` |
+| `Telephony` | no if WebRTC | SIP dial params: `call_to` / `dial_in` / `sip_trunk_id` / `prepare_ms` (overrides config) |
 | `Behavior` | no | Hamming policy → auto Script (`barge_ins`, `user_silence`, `ambient`, `hang_ups`) |
 | `Script` | no | Timed cues (`speak`, `wait`, **`hang_up`**) (wins over Behavior on same step `id`) |
-| `Assert` | no | tools / transcript / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, `llm_bool`) |
+| `Assert` | no | tools / transcript / **`sip`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, `llm_bool`) |
 | `Plugins` | no | Load local verify modules — see **Verify plugins** below |
 | `PassCriteria` | no | Soft LLM judge rubric |
 
@@ -270,6 +277,48 @@ It adds a basic transcript Assert + recovery Assert (when barges present).
 - `user` — sim speaks first (agents that wait for caller audio).
 - `agent` — agent greets first (sim is nudged after agent speech if no Script).
 
+
+### Telephony (inbound / outbound SIP)
+
+Mode is **per scenario** (`Caller.mode`), never in `config.yaml`.
+
+| Mode | Gemini role | Config / scenario needs |
+|------|-------------|-------------------------|
+| `webrtc_sim` | Caller (default) | No `telephony:` required |
+| `inbound_sip` | Caller dials agent DID | `telephony.outbound_trunk_id` + `dial_in` (or `Telephony.dial_in`) |
+| `outbound_sip` | Callee answers | trunk + `call_to` / `sim_inbound_number` that routes into sim-room |
+| `agent_dials` | Callee; agent dials | Cooperative agent + sim answer path |
+
+Package templates (copy into target `.agent-sim/scenarios/`):
+
+- `templates/outbound-callee-sim.jsonl`
+- `templates/inbound-caller-sim.jsonl`
+
+```jsonl
+{"kind":"Caller","spec":{"mode":"inbound_sip"}}
+{"kind":"Telephony","spec":{"dial_in":"+15551234567"}}
+```
+
+```yaml
+# config.yaml — defaults only (optional)
+telephony:
+  outbound_trunk_id: "ST_xxxxxxxxxxxx"
+  dial_in: "+15551234567"
+  sim_inbound_number: "+15559876543"  # Gemini answers here for outbound_sip
+  prepare_ms: 3000
+  wait_until_answered: true
+```
+
+SIP asserts:
+
+```json
+{"kind":"Assert","spec":{"sip":{"participant_present":true,"dial_answered":true,"call_status_any":["active"]}}}
+```
+
+Precedence: **scenario `Telephony.*` > config `telephony.*` > built-ins**.  
+Full guide: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/telephony.md
+
+
 ---
 
 ## 3. Public ops (CLI ↔ MCP)
@@ -362,6 +411,9 @@ No Node/Vite on the user machine. Player assets ship inside the wheel (built in 
 | Scenario JSON error | Remove `#` comments; only full-line `//` allowed |
 | scenario-from-run draft says "DRAFT — review" | The draft is a starting point; tighten Persona/Assert before promoting to CI |
 | pass@k flake | Increase ``--repeat`` or relax ``--pass-at-k``; single-shot runs are not statistically conclusive |
+| SIP parse/preflight fail | Set `telephony.outbound_trunk_id` + `call_to`/`dial_in`; mode only in `Caller` |
+| outbound rings wrong number | `call_to` must be sim/Gemini DID, not a personal handset by default |
+| inbound no agent room | Set `Telephony.agent_room` / `agent_room_name_template` or fix inbound dispatch rule |
 
 ---
 

@@ -8,11 +8,14 @@ from typing import Any
 from .asserts import parse_assert_spec
 from .scenario import (
     API_VERSION,
+    CALLER_MODES,
+    CallerSpec,
     DispatchSpec,
     ExecuteSpec,
     Scenario,
     ScenarioError,
     SimulatorSpec,
+    TelephonySpec,
 )
 from .script_parse import parse_script_steps, parse_script_verify
 
@@ -60,6 +63,40 @@ def scenario_from_dict(
         if meta is not None and str(meta).strip():
             dispatch = DispatchSpec(metadata=str(meta).strip())
 
+    caller: CallerSpec | None = None
+    caller_raw = data.get("caller")
+    if isinstance(caller_raw, dict) and caller_raw.get("mode"):
+        mode = str(caller_raw["mode"]).strip().lower()
+        if mode not in CALLER_MODES:
+            raise ScenarioError(
+                f"{path_label}: caller.mode must be one of {sorted(CALLER_MODES)} (got {mode!r})"
+            )
+        caller = CallerSpec(mode=mode)
+
+    telephony: TelephonySpec | None = None
+    tel_raw = data.get("telephony")
+    if isinstance(tel_raw, dict):
+        def _opt(key: str) -> str | None:
+            v = tel_raw.get(key)
+            if v is None:
+                return None
+            s = str(v).strip()
+            return s or None
+
+        prepare = tel_raw.get("prepare_ms")
+        wait = tel_raw.get("wait_until_answered")
+        krisp = tel_raw.get("krisp_enabled")
+        telephony = TelephonySpec(
+            call_to=_opt("call_to"),
+            dial_in=_opt("dial_in"),
+            sip_trunk_id=_opt("sip_trunk_id") or _opt("outbound_trunk_id"),
+            prepare_ms=int(prepare) if prepare is not None else None,
+            wait_until_answered=bool(wait) if wait is not None else None,
+            krisp_enabled=bool(krisp) if krisp is not None else None,
+            agent_room=_opt("agent_room"),
+            agent_room_name_template=_opt("agent_room_name_template"),
+        )
+
     script_steps = []
     script_verify = None
     script_raw = data.get("script")
@@ -96,6 +133,8 @@ def scenario_from_dict(
         simulator=simulator,
         execute=execute,
         dispatch=dispatch,
+        caller=caller,
+        telephony=telephony,
         pass_criteria=[str(c) for c in (data.get("pass_criteria") or [])],
         script_steps=script_steps,
         script_verify=script_verify,

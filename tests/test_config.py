@@ -104,3 +104,33 @@ def test_tool_gap_only_when_session_and_patterns_are_disabled(tmp_path):
 
     cfg.observe = ObserveConfig()
     assert config_snapshot(cfg)["observe_gaps"] == []
+
+
+def test_telephony_config_optional(tmp_path):
+    cfg_text = VALID_CONFIG + """
+telephony:
+  outbound_trunk_id: "ST_test"
+  dial_in: "+15551234567"
+  sim_inbound_number: "+15559876543"
+  prepare_ms: 1500
+  wait_until_answered: false
+  krisp_enabled: true
+"""
+    cfg = load_config(_write(tmp_path, cfg_text))
+    assert cfg.telephony.outbound_trunk_id == "ST_test"
+    assert cfg.telephony.dial_in == "+15551234567"
+    assert cfg.telephony.sim_inbound_number == "+15559876543"
+    assert cfg.telephony.prepare_ms == 1500
+    assert cfg.telephony.wait_until_answered is False
+    assert cfg.telephony.krisp_enabled is True
+    snap = config_snapshot(cfg)
+    assert snap["telephony"]["outbound_trunk_set"] is True
+    assert "ST_test" not in str(snap)
+    assert "+1555" not in str(snap)
+
+
+def test_telephony_defaults_when_omitted(tmp_path):
+    cfg = load_config(_write(tmp_path, VALID_CONFIG))
+    assert cfg.telephony.outbound_trunk_id is None
+    assert cfg.telephony.prepare_ms == 3000
+    assert cfg.telephony.wait_until_answered is True

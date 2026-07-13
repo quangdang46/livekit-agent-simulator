@@ -106,3 +106,43 @@ def test_build_token_contains_room_grant(tmp_path):
     adapter = LiveKitAdapter(cfg)
     token = adapter.build_token("lk-sim-r-1")
     assert isinstance(token, str) and token.count(".") == 2  # JWT shape
+
+
+async def test_create_sip_participant_request(tmp_path):
+    cfg = make_cfg(tmp_path)
+    adapter, lkapi = make_adapter(cfg, [[]])
+    lkapi.sip = MagicMock()
+    lkapi.sip.create_sip_participant = AsyncMock(
+        return_value=SimpleNamespace(
+            participant_identity="sip-1",
+            sip_call_id="SC_1",
+            room_name="room",
+            participant_id="PA_1",
+        )
+    )
+    info = await adapter.create_sip_participant(
+        room_name="room-a",
+        sip_trunk_id="ST_x",
+        sip_call_to="+1555",
+        participant_identity="sip-1",
+        wait_until_answered=True,
+        krisp_enabled=False,
+    )
+    assert info.participant_identity == "sip-1"
+    req = lkapi.sip.create_sip_participant.call_args.args[0]
+    assert req.sip_trunk_id == "ST_x"
+    assert req.sip_call_to == "+1555"
+    assert req.room_name == "room-a"
+    assert req.wait_until_answered is True
+
+
+async def test_wait_for_sip_participant(tmp_path):
+    cfg = make_cfg(tmp_path)
+    sip_p = SimpleNamespace(
+        identity="sip-leg",
+        kind=3,
+        attributes={"sip.callStatus": "active"},
+    )
+    adapter, _ = make_adapter(cfg, [[], [sip_p]])
+    identity = await adapter.wait_for_sip_participant("room", timeout_ms=500, poll_ms=10)
+    assert identity == "sip-leg"

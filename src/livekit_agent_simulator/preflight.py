@@ -56,6 +56,17 @@ async def run_preflight(project_root: Path | str, connectivity: bool = True) -> 
     if connectivity and result.ok:
         await _check_livekit_api(cfg, result)
 
+    # Optional telephony surface (informational unless required by a SIP scenario at run time).
+    tel = cfg.telephony
+    if tel.outbound_trunk_id or tel.dial_in or tel.sim_inbound_number:
+        bits = []
+        bits.append("outbound_trunk=" + ("set" if tel.outbound_trunk_id else "missing"))
+        bits.append("dial_in=" + ("set" if tel.dial_in else "unset"))
+        bits.append("sim_inbound=" + ("set" if tel.sim_inbound_number else "unset"))
+        result.add("telephony", "pass" if tel.outbound_trunk_id else "warn", "; ".join(bits))
+    else:
+        result.add("telephony", "pass", "not configured (WebRTC-only OK)")
+
     return result, cfg
 
 

@@ -232,6 +232,15 @@ simulator:
 observe:
   timezone: "UTC"     # or Asia/Ho_Chi_Minh, …
   lk_agent_session: true
+
+# Optional SIP defaults (mode is NEVER here — use scenario Caller.mode).
+# Full guide: docs/telephony.md
+# telephony:
+#   outbound_trunk_id: "ST_xxxxxxxxxxxx"
+#   dial_in: "+15551234567"              # inbound_sip: Gemini dials this
+#   sim_inbound_number: "+15559876543"   # outbound_sip: Gemini answers this
+#   prepare_ms: 3000
+#   wait_until_answered: true
 ```
 
 ### Tool observability
@@ -258,6 +267,8 @@ protocol. For those agents, map custom data messages with
 | `LIVEKIT_API_SECRET` | `livekit.api_secret` |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_GENAI_API_KEY` | `simulator.google_api_key` |
 | Consumer-specific (search docs — not one global name) | `livekit.agent_name` |
+| `SIP_OUTBOUND_TRUNK_ID` (optional) | `telephony.outbound_trunk_id` |
+| `SIP_INBOUND_TRUNK_ID` (optional) | `telephony.inbound_trunk_id` (docs/preflight) |
 
 Per-scenario dispatch override (opaque JSON — keys are consumer-specific):
 
@@ -529,6 +540,25 @@ Assert highlights (for scenario authors after setup):
 
 Script action `hang_up` makes the sim caller leave the room (hard hangup).
 
+### Telephony scenarios (optional)
+
+Package templates (copy into `.agent-sim/scenarios/`):
+
+- `outbound-callee-sim.jsonl` — Gemini answers (`Caller.mode: outbound_sip`)
+- `inbound-caller-sim.jsonl` — Gemini dials agent DID (`Caller.mode: inbound_sip`)
+
+```bash
+# After telephony: block in config.yaml (trunk + dial_in / sim_inbound_number):
+lk-sim validate inbound-caller-sim --root "$TARGET_ROOT"
+# lk-sim execute inbound-caller-sim --root "$TARGET_ROOT"   # needs real trunk + DID routing
+```
+
+Mode is **only** in scenario `Caller` — never in `config.yaml`.  
+Guide: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/telephony.md  
+Ops detail: `lk-sim guide` (templates/GUIDE.md).
+
+SIP asserts: `Assert.spec.sip.participant_present` / `dial_answered` / `call_status_any`.
+
 ---
 
 ## 8. Definition of done (agent checklist)
@@ -544,6 +574,7 @@ Mark setup complete only when **all** of these are true:
 - [ ] (Tool scenarios) report contains `tool.*` and `session.chat_history`, with no `tool_events` observe gap
 - [ ] (Optional) MCP `livekit-agent-simulator` registered if they use a coding agent
 - [ ] (Optional) `lk-sim execute smoke-hello --root "$TARGET_ROOT"` → `status: done` or a clear next fix (agent timeout / Gemini quota)
+- [ ] (Optional SIP) `telephony:` trunk/DID filled when testing `inbound_sip` / `outbound_sip`; scenarios validated
 
 **Do not claim “fully working E2E”** if preflight failed or the worker is not registered.
 
@@ -552,7 +583,8 @@ Mark setup complete only when **all** of these are true:
 ## 9. Safety / scope boundaries
 
 - **In scope:** install CLI, scaffold `.agent-sim/`, fill config from user/env, preflight, create/edit scenarios under `.agent-sim/scenarios/`, run executes, reports, MCP config.
-- **Out of scope:** rewriting the user’s agent product logic; load testing; SIP telephony setup; committing secrets; changing production LiveKit keys without confirmation.
+- **Out of scope:** rewriting the user’s agent product logic; load testing; provisioning carrier trunks/DIDs; committing secrets; changing production LiveKit keys without confirmation.
+- **In package (optional):** SIP **scenario modes** (`inbound_sip` / `outbound_sip`) via SimLeg — see [telephony.md](../telephony.md). Target still owns trunk IDs and numbers in gitignored config.
 - **Quota:** Gemini free tier can 429 on judge/Live after many runs — report that honestly; hard gates (status/assert/script) still work when judge is soft-error.
 
 ---
@@ -632,6 +664,7 @@ lk-sim preflight --root $TARGET_ROOT
 | This guide (raw) | https://raw.githubusercontent.com/quangdang46/livekit-agent-simulator/main/docs/guide/installation.md |
 | Ops guide | package `lk-sim guide` or `templates/GUIDE.md` (voice, cues, plugins) |
 | Portability | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
+| Telephony (SIP modes) | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/telephony.md |
 | Smoke notes | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/smoke-test.md |
 | L3 observer design | `docs/plans/PLAN-20260713-lk-agent-session-observer.md` |
 

@@ -82,6 +82,7 @@ class Observer:
         sim_identity: str,
         *,
         first_speaker: str = "agent",
+        recorder: Any | None = None,
     ) -> None:
         self.room = room
         self.writer = writer
@@ -89,6 +90,9 @@ class Observer:
         self.agent_identity = agent_identity
         self.sim_identity = sim_identity
         self.first_speaker = first_speaker
+        # Optional: record agent PCM from *this* room (agent-room on SIP legs).
+        # Decouples conversation.wav R-channel from Gemini sim-room track subscription.
+        self.recorder = recorder
 
         # Turn tracking: a turn = one user utterance + the agent reply to it.
         self.turn = 0
@@ -113,6 +117,8 @@ class Observer:
             if observe.lk_agent_session
             else None
         )
+        self._record_tasks: list[asyncio.Task] = []
+        self._recording_track_sids: set[str] = set()
 
     @property
     def agent_replied_this_turn(self) -> bool:
@@ -166,6 +172,12 @@ class Observer:
                 source="room",
                 include_dialogue=False,
             )
+            if (
+                self.recorder is not None
+                and track.kind == rtc.TrackKind.KIND_AUDIO
+                and p.identity == self.agent_identity
+            ):
+                self._start_agent_record(track)
 
         @room.on("active_speakers_changed")
         def _on_speakers(speakers: list[rtc.Participant]) -> None:
@@ -204,11 +216,78 @@ class Observer:
         if self._agent_session is not None:
             self._agent_session.attach()
 
+        # Agent track may already be subscribed before attach (common on SIP legs).
+        if self.recorder is not None:
+            for p in room.remote_participants.values():
+                if p.identity != self.agent_identity:
+                    continue
+                for pub in p.track_publications.values():
+                    tr = pub.track
+                    if tr is not None and tr.kind == rtc.TrackKind.KIND_AUDIO:
+                        self._start_agent_record(tr)
+
+    def _start_agent_record(self, track: rtc.Track) -> None:
+        """Record agent remote audio into conversation.wav R-channel (16 kHz mono)."""
+        if self.recorder is None:
+            return
+        sid = getattr(track, "sid", None) or id(track)
+        key = str(sid)
+        if key in self._recording_track_sids:
+            return
+        self._recording_track_sids.add(key)
+        task = asyncio.create_task(
+            self._pump_agent_record(track, key),
+            name=f"obs-record-agent-{key[:12]}",
+        )
+        self._record_tasks.append(task)
+
+    async def _pump_agent_record(self, track: rtc.Track, key: str) -> None:
+        from livekit import rtc as _rtc
+
+        stream = _rtc.AudioStream(track, sample_rate=16_000, num_channels=1)
+        try:
+            self.writer.emit(
+                "sim.agent_audio_recorded",
+                spec={"track_sid": key, "source": "observer.agent_room", "sample_rate": 16_000},
+                source="sim",
+                include_dialogue=False,
+            )
+            async for frame_event in stream:
+                if self.recorder is None:
+                    break
+                frame = frame_event.frame
+                pcm = bytes(frame.data)
+                if pcm:
+                    self.recorder.push_agent(pcm, 16_000)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.writer.emit(
+                "sim.error",
+                spec={
+                    "where": "observer.agent_record",
+                    "error": f"{type(e).__name__}: {e}",
+                    "track_sid": key,
+                },
+                source="sim",
+                include_dialogue=False,
+            )
+        finally:
+            try:
+                await stream.aclose()
+            except Exception:
+                pass
+
     async def finalize_session_snapshot(self) -> None:
         if self._agent_session is not None:
             await self._agent_session.fetch_session_snapshot()
 
     async def detach(self) -> None:
+        for t in self._record_tasks:
+            t.cancel()
+        if self._record_tasks:
+            await asyncio.gather(*self._record_tasks, return_exceptions=True)
+        self._record_tasks.clear()
         if self._agent_session is not None:
             await self._agent_session.detach()
 

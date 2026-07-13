@@ -18,6 +18,13 @@
 {"kind":"Execute","spec":{"max_turns":4,"timeout_s":120,"first_speaker":"user"}}
 // === Dispatch (optional) — opaque JSON string for RoomAgentDispatch.metadata ===
 {"kind":"Dispatch","spec":{"metadata":"{\"yourProjectKey\":\"replace-me\"}"}}
+// === Caller / Telephony (optional) — transport mode; NEVER put mode in config.yaml ===
+// mode: webrtc_sim (default if omitted) | inbound_sip | outbound_sip | agent_dials
+// outbound_sip: Gemini answers — need call_to OR config telephony.sim_inbound_number + trunk
+// inbound_sip:  Gemini dials  — need dial_in OR config telephony.dial_in + trunk
+// See docs/telephony.md and templates/outbound-callee-sim.jsonl / inbound-caller-sim.jsonl
+// {"kind":"Caller","spec":{"mode":"webrtc_sim"}}
+// {"kind":"Telephony","spec":{"call_to":"+15559876543","dial_in":"+15551234567","prepare_ms":3000}}
 // === Behavior (optional, Hamming policy) — compiles to Script if present ===
 // barge_ins[], user_silence[], hang_ups[], ambient{asset,delay_ms}
 // Explicit Script below wins on same step id
@@ -29,9 +36,10 @@
 // asset: builtin:voice.barge_short | builtin:noise.loud | .agent-sim/cues/file.wav
 // speech_conditions.barge_asset: builtin:voice.barge_short (vocal; with_blip defaults off for voice.*)
 // {"kind":"Script","spec":{"steps":[],"verify":{"require_during_agent_speech":false,"min_agent_finals_after_barge_in":0}}}
-// === Assert — tools / transcript / outcomes (recovery | latency | ended_by | transcript_contains | llm_bool) ===
+// === Assert — tools / transcript / outcomes / sip ===
 // latency example: {"id":"speed","type":"latency","max_turn_p95_ms":3500,"max_ttfw_ms":5000,"require_turn_samples":1}
 // ended_by example: {"id":"caller_hung_up","type":"ended_by","who":"sim"}
+// sip example: "sip":{"participant_present":true,"dial_answered":true,"call_status_any":["active"]}
 {"kind":"Assert","spec":{"tools":[],"transcript":[{"role":"agent","contains_any":["help","support","hello","hi"]}],"outcomes":[{"id":"agent_spoke","type":"transcript_contains","role":"agent","phrases":["a","e","i","o","u"]}]}}
 // === PassCriteria (optional soft judge) ===
 {"kind":"PassCriteria","spec":{"criteria":["The agent responded to the caller","The agent responded in a language the caller can understand"]}}

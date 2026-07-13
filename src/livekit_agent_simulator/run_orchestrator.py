@@ -1,4 +1,7 @@
-"""End-to-end run: preflight → room+dispatch → wait agent → sim join → converse → report.
+"""End-to-end run: preflight → SimLeg.connect → converse → report.
+
+Phases: prepare → SimLeg (WebRTC | inbound_sip | outbound_sip | agent_dials) →
+SimBrain → converse → verify → judge → finalize.
 
 End conditions (first one wins):
     - simulator persona says goodbye and emits [END_CALL]
@@ -23,13 +26,14 @@ from .caller_nudge import nudge_caller_after_agent_greeting
 from .config import SimConfig, config_snapshot
 from .gemini.judge import judge_run
 from .gemini.live_session import GeminiCallerBridge
-from .livekit.adapter import SIM_IDENTITY, AgentJoinTimeout, LiveKitAdapter
+from .livekit.adapter import AgentJoinTimeout, LiveKitAdapter
 from .livekit.observer import Observer
+from .livekit.sim_leg import SimLegContext, SimLegError, SimLegHandle, sim_leg_factory
 from .logging.event_writer import EventWriter
 from .logging.sqlite_store import RunStore
 from .preflight import run_preflight
 from .plugins.loader import ensure_plugins_loaded
-from .scenario import Scenario, SimulatorSpec, find_scenario
+from .scenario import Scenario, SimulatorSpec, find_scenario, validate_telephony_for_mode
 from .script import ScriptRunner, build_caller_behavior_summary, evaluate_script_log
 
 
@@ -55,13 +59,13 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
     """Run a parsed Scenario (file or in-memory). Returns {run_id, status, report_dir, summary}.
 
     Phases (in order):
-      1. prepare — plugins, report dir, event writer
-      2. dispatch — room + agent join
-      3. connect  — sim caller + mic + optional script runner
-      4. converse — turns until end condition
-      5. verify   — script/assert hard checks + behavior_summary
-      6. judge    — optional soft LLM verdict
-      7. finalize — summary.json / sqlite / cleanup
+      1. prepare  — plugins, report dir, event writer
+      2–3. SimLeg  — factory(mode).connect → rooms + identities
+      4. brain    — GeminiCallerBridge + optional script runner
+      5. converse — turns until end condition
+      6. verify   — script/assert hard checks + behavior_summary
+      7. judge    — optional soft LLM verdict
+      8. finalize — summary.json / sqlite / multi-room cleanup
     """
     # ── Phase 1: prepare ────────────────────────────────────────────────
     plugin_load = ensure_plugins_loaded(cfg.project_root, scenario.plugin_modules)
@@ -100,72 +104,95 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
     recorder: LocalConversationRecorder | None = None
     observer: Observer | None = None
     session_snapshot_attempted = False
+    leg_handle: SimLegHandle | None = None
+    caller_mode = scenario.effective_caller_mode()
+    meta["caller_mode"] = caller_mode
 
     async with LiveKitAdapter(cfg) as adapter:
         writer.emit(
             "run.started",
-            spec={"scenario_id": scenario.id, "config_snapshot": config_snapshot(cfg)},
+            spec={
+                "scenario_id": scenario.id,
+                "caller_mode": caller_mode,
+                "config_snapshot": config_snapshot(cfg),
+            },
             include_dialogue=False,
         )
         try:
-            # ── Phase 2: dispatch ────────────────────────────────────────
-            dispatch = await adapter.create_room_and_dispatch(run_id, dispatch_metadata)
-            meta["room_name"] = dispatch.room_name
-            writer.emit(
-                "dispatch.created",
-                spec={
-                    "room": dispatch.room_name,
-                    "agent_name": cfg.livekit.agent_name,
-                    "dispatch_id": dispatch.dispatch_id,
-                    "metadata_set": bool(dispatch_metadata),
-                },
-                include_dialogue=False,
-            )
-            await store.create_run(
-                run_id, scenario.id, dispatch.room_name, cfg.livekit.agent_name,
-                started_utc, str(report_dir),
-            )
+            validate_telephony_for_mode(scenario, cfg)
 
+            # ── Phase 2–3: SimLeg.connect (Strategy) ─────────────────────
+            leg = sim_leg_factory(caller_mode)
             try:
-                agent_identity = await adapter.wait_for_agent(dispatch.room_name)
-            except AgentJoinTimeout as e:
-                writer.emit("dispatch.agent_timeout", spec={"error": str(e)}, include_dialogue=False)
+                leg_handle = await leg.connect(
+                    SimLegContext(
+                        adapter=adapter,
+                        cfg=cfg,
+                        scenario=scenario,
+                        writer=writer,
+                        run_id=run_id,
+                        dispatch_metadata=dispatch_metadata,
+                        first_speaker=run.first_speaker,
+                    )
+                )
+            except (AgentJoinTimeout, SimLegError) as e:
+                writer.emit(
+                    "dispatch.agent_timeout" if isinstance(e, AgentJoinTimeout) else "sim.leg_error",
+                    spec={"error": str(e), "mode": caller_mode},
+                    include_dialogue=False,
+                )
                 raise
-            writer.emit(
-                "dispatch.agent_joined", spec={"identity": agent_identity}, include_dialogue=False
-            )
-            meta["agent_identity"] = agent_identity
 
-            room = await adapter.connect_simulator(dispatch.room_name)
-            writer.emit(
-                "sim.connected",
-                spec={"identity": SIM_IDENTITY, "room": dispatch.room_name},
-                include_dialogue=False,
-            )
+            meta["room_name"] = leg_handle.agent_room_name
+            meta["sim_room_name"] = leg_handle.sim_room_name
+            meta["agent_identity"] = leg_handle.agent_identity
+            meta["sim_identity"] = leg_handle.sim_identity
+            if leg_handle.meta:
+                meta["leg"] = dict(leg_handle.meta)
+                if "dial_ms" in leg_handle.meta:
+                    meta["dial_ms"] = leg_handle.meta["dial_ms"]
 
-            observer = Observer(
-                room,
-                writer,
-                cfg.observe,
-                agent_identity,
-                SIM_IDENTITY,
-                first_speaker=run.first_speaker,
+            await store.create_run(
+                run_id,
+                scenario.id,
+                leg_handle.agent_room_name,
+                cfg.livekit.agent_name,
+                started_utc,
+                str(report_dir),
             )
-            observer.attach()
 
             if cfg.observe.audio_recording_enabled:
                 recorder = LocalConversationRecorder()
 
+            # Observer on agent-room: transcripts + agent WAV R-channel (works for SIP 2-room).
+            observer = Observer(
+                leg_handle.agent_room,
+                writer,
+                cfg.observe,
+                leg_handle.agent_identity,
+                leg_handle.sim_identity,
+                first_speaker=run.first_speaker,
+                recorder=recorder,
+            )
+            observer.attach()
+
+            # Gemini brain always on sim_room (WebRTC: same as agent_room).
+            # Recorder still gets L=sim via mixer; R=agent via Observer (not only Gemini listen path).
             bridge = GeminiCallerBridge(
                 cfg,
-                room,
+                leg_handle.sim_room,
                 observer,
                 writer,
                 persona_system_prompt=scenario.persona_system_prompt(),
                 first_speaker=run.first_speaker,
                 recorder=recorder,
             )
-            bridge.watch_agent_tracks(agent_identity)
+            if leg_handle.gemini_listen_sip:
+                bridge.watch_sip_audio_tracks()
+            elif leg_handle.gemini_listen_identity:
+                bridge.watch_agent_tracks(leg_handle.gemini_listen_identity)
+            else:
+                bridge.watch_agent_tracks(leg_handle.agent_identity)
 
             script_runner: ScriptRunner | None = None
             script_task: asyncio.Task | None = None
@@ -212,12 +239,13 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             session_snapshot_attempted = True
             await observer.finalize_session_snapshot()
             await observer.detach()
-            await room.disconnect()
+            if leg_handle is not None:
+                await leg_handle.disconnect_rooms()
             status = "done"
         except Exception as e:
             writer.emit(
                 "run.error",
-                spec={"error": f"{type(e).__name__}: {e}"},
+                spec={"error": f"{type(e).__name__}: {e}", "mode": caller_mode},
                 include_dialogue=False,
             )
             status = "failed"
@@ -274,8 +302,18 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                         source="sim",
                         include_dialogue=False,
                     )
-            if meta.get("room_name"):
-                await adapter.delete_room(meta["room_name"])
+            # Multi-room cleanup (WebRTC: one room; SIP: agent + sim).
+            rooms: list[str] = []
+            if leg_handle is not None:
+                rooms = list(leg_handle.rooms_to_delete)
+                try:
+                    await leg_handle.disconnect_rooms()
+                except Exception:
+                    pass
+            elif meta.get("room_name"):
+                rooms = [str(meta["room_name"])]
+            for rn in dict.fromkeys(rooms):
+                await adapter.delete_room(rn)
 
     # ── Phase: post-run hard verify + report digests ─────────────────────
     summary_extra: dict[str, Any] = {}
@@ -345,8 +383,16 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             verdict = {"verdict": "error", "notes": f"{type(e).__name__}: {e}"}
 
     summary = writer.finalize(status, meta=meta, verdict=verdict)
+    summary.setdefault("caller_mode", caller_mode)
+    if meta.get("dial_ms") is not None:
+        summary.setdefault("dial_ms", meta.get("dial_ms"))
     if summary_extra:
         summary.update(summary_extra)
+        (report_dir / "summary.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    else:
+        # Persist mode/dial fields even without assert/script extras.
         (report_dir / "summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
         )

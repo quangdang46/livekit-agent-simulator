@@ -62,15 +62,28 @@ class OutcomeExpect:
     ended_by: str | None = None  # "sim" | "agent"
 
 
+@dataclass(frozen=True)
+class SipExpect:
+    """SIP-related hard asserts (portable — no carrier-specific fields)."""
+
+    # Require sip.participant_connected (or outbound/inbound answered) in events.
+    participant_present: bool = False
+    # Expected sip.callStatus value(s), e.g. ("active",). Empty = do not check status.
+    call_status_any: tuple[str, ...] = ()
+    # Require outbound.dial_answered or inbound.answered.
+    dial_answered: bool = False
+
+
 @dataclass
 class AssertSpec:
     tools: list[ToolExpect] = field(default_factory=list)
     transcript: list[TranscriptExpect] = field(default_factory=list)
     outcomes: list[OutcomeExpect] = field(default_factory=list)
+    sip: SipExpect | None = None
 
     @property
     def empty(self) -> bool:
-        return not (self.tools or self.transcript or self.outcomes)
+        return not (self.tools or self.transcript or self.outcomes or self.sip)
 
 
 def _opt_int(raw: dict[str, Any], key: str) -> int | None:
@@ -181,7 +194,23 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
             )
         )
 
-    return AssertSpec(tools=tools, transcript=transcript, outcomes=outcomes)
+    sip: SipExpect | None = None
+    sip_raw = spec.get("sip")
+    if isinstance(sip_raw, dict):
+        statuses = sip_raw.get("call_status_any") or sip_raw.get("call_status") or []
+        if isinstance(statuses, str):
+            statuses = [statuses]
+        if not isinstance(statuses, list):
+            raise ValueError(f"{path_label}: sip.call_status_any must be string or array")
+        sip = SipExpect(
+            participant_present=bool(
+                sip_raw.get("participant_present", sip_raw.get("sip_participant_present", False))
+            ),
+            call_status_any=tuple(str(s) for s in statuses),
+            dial_answered=bool(sip_raw.get("dial_answered", False)),
+        )
+
+    return AssertSpec(tools=tools, transcript=transcript, outcomes=outcomes, sip=sip)
 
 
 def _tool_args_blob(spec: dict[str, Any]) -> dict[str, Any]:
@@ -232,6 +261,9 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
 
     checks: list[dict[str, Any]] = []
     tool_starts = [e for e in events if e.get("kind") == "tool.start"]
+
+    if asserts.sip is not None:
+        checks.extend(_eval_sip_expect(asserts.sip, events))
 
     for te in asserts.tools:
         matches = []
@@ -514,136 +546,57 @@ def _eval_ended_by_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> d
         "details": ", ".join(reason_parts) if reason_parts else None,
     }
 
-def _eval_latency_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Hard gate on turn_taking / TTFW / recovery percentiles from event stream."""
-    m = compute_voice_metrics(events)
-    tt = m.get("turn_taking_ms") if isinstance(m.get("turn_taking_ms"), dict) else {}
-    rec = m.get("recovery_ms") if isinstance(m.get("recovery_ms"), dict) else {}
-    reasons: list[str] = []
-    ok = True
-
-    n_turns = int(tt.get("count") or 0)
-    if oc.require_turn_samples and n_turns < oc.require_turn_samples:
-        ok = False
-        reasons.append(
-            f"turn samples {n_turns} < require_turn_samples {oc.require_turn_samples}"
+def _eval_sip_expect(sip: SipExpect, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Evaluate portable SIP asserts from forensic events."""
+    checks: list[dict[str, Any]] = []
+    kinds = [str(e.get("kind") or "") for e in events]
+    present = any(
+        k in (
+            "sip.participant_connected",
+            "outbound.dial_answered",
+            "inbound.answered",
         )
-
-    def _gate(actual: Any, limit: int | None, label: str) -> None:
-        nonlocal ok
-        if limit is None:
-            return
-        if actual is None:
-            ok = False
-            reasons.append(f"{label}: no sample (need measured value ≤ {limit}ms)")
-            return
-        try:
-            val = float(actual)
-        except (TypeError, ValueError):
-            ok = False
-            reasons.append(f"{label}: invalid actual {actual!r}")
-            return
-        if val > limit:
-            ok = False
-            reasons.append(f"{label} {val:.0f}ms > max {limit}ms")
-
-    _gate(tt.get("p50"), oc.max_turn_p50_ms, "turn_p50")
-    _gate(tt.get("p95"), oc.max_turn_p95_ms, "turn_p95")
-    _gate(tt.get("p99"), oc.max_turn_p99_ms, "turn_p99")
-    _gate(tt.get("max"), oc.max_turn_max_ms, "turn_max")
-    _gate(m.get("ttfw_ms"), oc.max_ttfw_ms, "ttfw")
-    _gate(rec.get("p50"), oc.max_recovery_p50_ms, "recovery_p50")
-    _gate(rec.get("p95"), oc.max_recovery_p95_ms, "recovery_p95")
-
-    if oc.min_barge_recovery_rate is not None:
-        rate = m.get("barge_recovery_rate")
-        barges = int(m.get("barge_count") or 0)
-        if barges == 0:
-            ok = False
-            reasons.append(
-                f"barge_recovery_rate: no barges fired "
-                f"(need rate >= {oc.min_barge_recovery_rate})"
-            )
-        elif rate is None or float(rate) < float(oc.min_barge_recovery_rate):
-            ok = False
-            reasons.append(
-                f"barge_recovery_rate {rate} < min {oc.min_barge_recovery_rate}"
-            )
-
-    return {
-        "check": f"outcome:{oc.id}",
-        "pass": ok,
-        "type": "latency",
-        "reasons": reasons,
-        "actual": {
-            "turn_p50_ms": tt.get("p50"),
-            "turn_p95_ms": tt.get("p95"),
-            "turn_p99_ms": tt.get("p99"),
-            "turn_max_ms": tt.get("max"),
-            "turn_count": n_turns,
-            "ttfw_ms": m.get("ttfw_ms"),
-            "recovery_p50_ms": rec.get("p50"),
-            "recovery_p95_ms": rec.get("p95"),
-            "barge_count": m.get("barge_count"),
-            "barge_recovery_rate": m.get("barge_recovery_rate"),
-        },
-        "limits": {
-            "max_turn_p50_ms": oc.max_turn_p50_ms,
-            "max_turn_p95_ms": oc.max_turn_p95_ms,
-            "max_turn_p99_ms": oc.max_turn_p99_ms,
-            "max_turn_max_ms": oc.max_turn_max_ms,
-            "max_ttfw_ms": oc.max_ttfw_ms,
-            "max_recovery_p50_ms": oc.max_recovery_p50_ms,
-            "max_recovery_p95_ms": oc.max_recovery_p95_ms,
-            "min_barge_recovery_rate": oc.min_barge_recovery_rate,
-            "require_turn_samples": oc.require_turn_samples or None,
-        },
-    }
-
-
-def _eval_ended_by_outcome(oc: OutcomeExpect, events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Assert that the call ended by the expected side (sim | agent | detect)."""
-    sim_hangup = [e for e in events if e.get("kind") in ("sim.hang_up", "sim.script.hang_up")]
-    end_cond = [e for e in events if e.get("kind") == "run.end_condition"]
-
-    who = "detect"
-    reason_parts: list[str] = []
-
-    if sim_hangup:
-        who = "sim"
-        reason_parts.append("sim_hang_up event (via script)")
-    elif end_cond:
-        er = end_cond[-1].get("spec", {}).get("reason", "")
-        er_s = str(er) if er else ""
-        if "sim_end_call" in er_s:
-            who = "sim"
-            reason_parts.append(f"end_reason: {er_s}")
-        elif er_s in ("agent_disconnected", "dead_call_silence"):
-            who = "agent"
-            reason_parts.append(f"end_reason: {er_s}")
-        elif er_s in ("max_turns", "timeout"):
-            reason_parts.append(f"end_reason: {er_s} (no hang-up side)")
-    else:
+        for k in kinds
+    )
+    if sip.participant_present:
+        checks.append(
+            {
+                "check": "sip_participant_present",
+                "pass": present,
+                "type": "sip",
+                "actual": present,
+            }
+        )
+    if sip.dial_answered:
+        answered = any(k in ("outbound.dial_answered", "inbound.answered") for k in kinds)
+        checks.append(
+            {
+                "check": "sip_dial_answered",
+                "pass": answered,
+                "type": "sip",
+                "actual": answered,
+            }
+        )
+    if sip.call_status_any:
+        statuses: list[str] = []
         for e in events:
-            if e.get("kind") == "sim.end_call_token":
-                who = "sim"
-                reason_parts.append("sim end_call_token")
-                break
-
-    ok = True
-    reasons: list[str] = []
-    if oc.ended_by is not None and oc.ended_by != "detect":
-        if who != oc.ended_by:
-            ok = False
-            reasons.append(f"expected ended_by={oc.ended_by}, detected={who}")
-
-    return {
-        "check": f"outcome:{oc.id}",
-        "pass": ok,
-        "type": "ended_by",
-        "expected": oc.ended_by,
-        "actual": who,
-        "reasons": reasons,
-        "details": ", ".join(reason_parts) if reason_parts else None,
-    }
-
+            if e.get("kind") != "sip.call_status":
+                continue
+            spec = e.get("spec") if isinstance(e.get("spec"), dict) else {}
+            st = spec.get("status") or spec.get("call_status")
+            if st:
+                statuses.append(str(st))
+        # Also treat dial_answered as active for hairpin paths that skip attribute polling.
+        if any(k in ("outbound.dial_answered", "inbound.answered") for k in kinds):
+            statuses.append("active")
+        ok = any(s in sip.call_status_any for s in statuses)
+        checks.append(
+            {
+                "check": "sip_call_status",
+                "pass": ok,
+                "type": "sip",
+                "expected_any": list(sip.call_status_any),
+                "actual": statuses,
+            }
+        )
+    return checks
