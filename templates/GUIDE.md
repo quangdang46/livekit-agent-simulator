@@ -66,8 +66,9 @@ Created by `init`. **Gitignored.** Paste secrets here (no env substitution in v1
 | `judge.model` | no | If present + scenario PassCriteria → post-run LLM judge |
 | `observe.record_audio` | no | `true` → local stereo WAV (L=sim, R=agent), no Egress |
 | `observe.timezone` | no | Default `UTC` (report timestamps) |
+| `observe.lk_agent_session` | no | Default `true`; SDK tools, state, errors, usage + final chat history via `lk.agent.session` |
 | `observe.data_topics` | no | Empty = all data topics; else filter |
-| `observe.tool_event_patterns` | no | Map data payloads → `tool.start` / `tool.end` / `tool.error` |
+| `observe.tool_event_patterns` | no | Fallback for non-SDK custom data payloads → `tool.start` / `tool.end` / `tool.error` |
 
 **Opaque dispatch:** `dispatch_metadata` and scenario `Dispatch.spec.metadata` are passed through
 as JSON strings. Core **never** parses consumer keys (e.g. product agent ids). If the worker
@@ -106,7 +107,8 @@ observe:
   record_audio: true     # reports/<run-id>/conversation.wav — L=sim, R=agent
   timezone: "Asia/Ho_Chi_Minh"
   lk_transcription: true
-  # Optional — if flow/tool events are missing from logs, see portability.md:
+  lk_agent_session: true # default; automatic for LiveKit Agents SDK workers
+  # Optional fallback for non-SDK custom events — see portability.md:
   # data_topics: ["myapp.flow"]
   # tool_event_patterns: []
 ```
@@ -323,6 +325,10 @@ Directory: `.agent-sim/reports/<run-id>/`
 | `meta.json` | Scenario, room, config snapshot (no secrets) |
 | `conversation.wav` | Stereo PCM if `observe.record_audio: true` |
 | `cues.json` | Built on demand by `web` for transcript↔audio sync + markers |
+
+Observation layers are L0 room events, L1 transcripts, L2 custom data topics, and
+L3 standard LiveKit Agents session events. L3 records `tool.*` and `session.*`
+automatically for SDK agents; custom `tool_event_patterns` remain a fallback.
 
 ```bash
 lk-sim report <run-id> --root /path/to/target   # full summary (includes caller.behavior_summary)

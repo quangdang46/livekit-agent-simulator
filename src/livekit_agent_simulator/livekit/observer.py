@@ -5,6 +5,7 @@ Sources:
     L1a lk.transcription   text streams published by AgentSession (agent + user segments)
     L1b custom data topics any payload matching observe.transcript_payload_types (e.g. transcript_turn)
     L2  tool patterns      config-driven match rules over data-topic JSON payloads
+    L3  lk.agent.session   SDK tools, state, errors, usage, and final chat history
 
 Attribute keys per LiveKit docs (agents/multimodality/text):
     lk.transcription_final, lk.segment_id
@@ -22,6 +23,7 @@ from livekit import rtc
 
 from ..config import ObserveConfig, ToolEventPattern
 from ..logging.event_writer import EventWriter
+from .agent_session_observer import AgentSessionObserver
 
 ATTR_FINAL = "lk.transcription_final"
 ATTR_SEGMENT_ID = "lk.segment_id"
@@ -106,6 +108,11 @@ class Observer:
 
         # tool.start events waiting for their tool.end/tool.error (call_id -> event)
         self._open_tools: dict[str, dict[str, Any]] = {}
+        self._agent_session = (
+            AgentSessionObserver(room, writer, agent_identity)
+            if observe.lk_agent_session
+            else None
+        )
 
     @property
     def agent_replied_this_turn(self) -> bool:
@@ -194,6 +201,16 @@ class Observer:
 
         if self.observe.lk_transcription:
             room.register_text_stream_handler("lk.transcription", self._on_transcription_stream)
+        if self._agent_session is not None:
+            self._agent_session.attach()
+
+    async def finalize_session_snapshot(self) -> None:
+        if self._agent_session is not None:
+            await self._agent_session.fetch_session_snapshot()
+
+    async def detach(self) -> None:
+        if self._agent_session is not None:
+            await self._agent_session.detach()
 
     # ------------------------------------------------------------- transcription
 

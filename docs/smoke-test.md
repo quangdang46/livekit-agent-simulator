@@ -47,6 +47,8 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim log <run-id> --kind "
 - With `observe.record_audio: true` (default in template): `reports/<run-id>/conversation.wav`
   is a local stereo file (L=sim caller, R=agent). No LiveKit Egress. Override language/timezone
   in `.agent-sim/config.yaml` for your market (package defaults are `en-US` / `UTC`).
+- For a scenario that calls an SDK tool: `tool.start` + `tool.end`/`tool.error` and
+  `session.chat_history` appear; `meta.json` does not list `tool_events` in `observe_gaps`.
 
 ## Common failures
 
@@ -56,6 +58,6 @@ uv run --directory /path/to/livekit-agent-simulator lk-sim log <run-id> --kind "
 | `Agent ... did not join room` | Agent not running, or `agent_name` mismatch |
 | `sim.error where=gemini->lk ... 1011` | Wrong Live model name or key lacks Live API access |
 | `dead_call_silence` end reason | Agent joined but never spoke — check agent logs |
-| No `tool.*` events | Agent doesn't publish matching data topics — set `observe.tool_event_patterns` in target config (see `docs/portability.md`) |
+| No `tool.*` events | Confirm the agent uses a compatible LiveKit Agents SDK and `observe.lk_agent_session: true`; for custom agents, configure `observe.tool_event_patterns` (see `docs/portability.md`) |
 
 For consumer-specific dispatch keys and data topics, see [portability.md](portability.md).

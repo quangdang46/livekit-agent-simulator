@@ -98,6 +98,8 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
     verdict: dict[str, Any] | None = None
     summary: dict[str, Any] = {}
     recorder: LocalConversationRecorder | None = None
+    observer: Observer | None = None
+    session_snapshot_attempted = False
 
     async with LiveKitAdapter(cfg) as adapter:
         writer.emit(
@@ -207,6 +209,9 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 await asyncio.wait_for(asyncio.shield(_settle(bridge_task)), timeout=10)
 
             writer.emit("run.end_condition", spec={"reason": end_reason}, include_dialogue=False)
+            session_snapshot_attempted = True
+            await observer.finalize_session_snapshot()
+            await observer.detach()
             await room.disconnect()
             status = "done"
         except Exception as e:
@@ -217,6 +222,14 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
             )
             status = "failed"
         finally:
+            if observer is not None:
+                if (
+                    not session_snapshot_attempted
+                    and not observer.agent_disconnected.is_set()
+                ):
+                    session_snapshot_attempted = True
+                    await observer.finalize_session_snapshot()
+                await observer.detach()
             if recorder is not None:
                 try:
                     audio_path = report_dir / DEFAULT_FILENAME

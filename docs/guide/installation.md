@@ -211,6 +211,7 @@ Recommended defaults (already in template):
 
 - `simulator.voice.model`: `gemini-3.1-flash-live-preview`
 - `observe.record_audio: true` (stereo WAV L=sim R=agent)
+- `observe.lk_agent_session: true` (automatic SDK tool/session events)
 - `judge.model`: `gemini-2.5-flash` (only used if scenario has `PassCriteria`)
 
 Optional but common:
@@ -229,7 +230,18 @@ simulator:
 
 observe:
   timezone: "UTC"     # or Asia/Ho_Chi_Minh, …
+  lk_agent_session: true
 ```
+
+### Tool observability
+
+LiveKit Agents SDK workers expose tool calls, outputs, state changes, errors, usage,
+and final chat history through the standard `lk.agent.session` RemoteSession protocol.
+It is enabled by default, so SDK workers do not need `tool_event_patterns`.
+
+Set `observe.lk_agent_session: false` only for agents that do not implement this
+protocol. For those agents, map custom data messages with
+`observe.tool_event_patterns`; see [portability.md](../portability.md).
 
 **How the agent should obtain values:**
 
@@ -495,6 +507,7 @@ Mark setup complete only when **all** of these are true:
 - [ ] `.agent-sim/` is gitignored
 - [ ] `lk-sim preflight --root "$TARGET_ROOT"` → `ok: true`
 - [ ] User knows the worker must be running before `execute`
+- [ ] (Tool scenarios) report contains `tool.*` and `session.chat_history`, with no `tool_events` observe gap
 - [ ] (Optional) MCP `livekit-agent-simulator` registered if they use a coding agent
 - [ ] (Optional) `lk-sim execute smoke-hello --root "$TARGET_ROOT"` → `status: done` or a clear next fix (agent timeout / Gemini quota)
 
@@ -584,5 +597,6 @@ lk-sim preflight --root $TARGET_ROOT
 | Ops guide | package `lk-sim guide` or `templates/GUIDE.md` (voice, cues, plugins) |
 | Portability | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md |
 | Smoke notes | https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/smoke-test.md |
+| L3 observer design | `docs/plans/PLAN-20260713-lk-agent-session-observer.md` |
 
 When instructions conflict: **this file + `lk-sim guide`** beat outdated blog snippets. Prefer latest release unless the user pins a tag.

@@ -69,6 +69,7 @@ class ToolEventPattern:
 class ObserveConfig:
     timezone: str = DEFAULT_TIMEZONE
     lk_transcription: bool = True
+    lk_agent_session: bool = True
     # Local-first stereo WAV under reports/<run-id>/conversation.wav (no Egress).
     # L = sim caller, R = agent.
     record_audio: bool = False
@@ -201,6 +202,7 @@ def load_config(project_root: Path | str) -> SimConfig:
     observe = ObserveConfig(
         timezone=str(obs_raw.get("timezone", DEFAULT_TIMEZONE)),
         lk_transcription=bool(obs_raw.get("lk_transcription", True)),
+        lk_agent_session=bool(obs_raw.get("lk_agent_session", True)),
         record_audio=bool(obs_raw.get("record_audio", False)),
         data_topics=[str(t) for t in (obs_raw.get("data_topics") or [])],
         tool_event_patterns=patterns,
@@ -240,7 +242,7 @@ def load_config(project_root: Path | str) -> SimConfig:
 def config_snapshot(cfg: SimConfig) -> dict[str, Any]:
     """Redacted config for `run.started.config_snapshot` — never includes secrets."""
     gaps: list[str] = []
-    if not cfg.observe.tool_event_patterns:
+    if not cfg.observe.lk_agent_session and not cfg.observe.tool_event_patterns:
         gaps.append("tool_events")
     return {
         "project": cfg.project,
@@ -263,6 +265,7 @@ def config_snapshot(cfg: SimConfig) -> dict[str, Any]:
         },
         "observe": {
             "lk_transcription": cfg.observe.lk_transcription,
+            "lk_agent_session": cfg.observe.lk_agent_session,
             "record_audio": cfg.observe.audio_recording_enabled,
             "data_topics": cfg.observe.data_topics,
             "silence_threshold_ms": cfg.observe.silence_threshold_ms,

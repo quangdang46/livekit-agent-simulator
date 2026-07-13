@@ -257,6 +257,14 @@ class EventWriter:
             if spec.get("error"):
                 parts.append(f"error={spec['error']}")
             return " ".join(parts)
+        if kind in ("session.agent_state", "session.user_state"):
+            return f"{spec.get('old_state', '?')} → {spec.get('new_state', '?')}"
+        if kind == "session.error":
+            return str(spec.get("message") or spec.get("error") or "")[:120]
+        if kind == "session.chat_history":
+            return f"{len(spec.get('items') or [])} items"
+        if kind == "session.usage":
+            return f"{len(spec.get('model_usage') or [])} model usage entries"
         if kind == "silence.detected":
             return f"{spec.get('duration_ms', '?')}ms of silence"
         keys = [k for k in ("name", "identity", "topic", "status", "room", "node_id", "reason") if spec.get(k)]

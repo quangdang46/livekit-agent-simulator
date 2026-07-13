@@ -14,7 +14,8 @@ folder; the Python package never imports consumer application code.
 | **Scenario** | `Execute`, `Dispatch`, `Persona`, `PassCriteria`, `Script` — same JSONL for any agent. |
 | **Transcripts** | `lk.transcription` (LiveKit standard) + configurable data payloads (`transcript_payload_types`, default `transcript_turn`). |
 | **Dedupe** | Multiple sources (sim.gemini, lk.transcription, data topics) merged with source priority so turn count stays accurate. |
-| **Tools** | Optional `observe.tool_event_patterns` — each project maps its own data-topic JSON. |
+| **L3 session** | `lk.agent.session` passive events + final `getChatHistory` / `getSessionUsage` snapshot for LiveKit Agents SDK workers. |
+| **Tools** | Automatic SDK `tool.start` / `tool.end` / `tool.error`; optional `observe.tool_event_patterns` fallback for custom agents. |
 
 ## Per-target setup (in `<repo>/.agent-sim/`)
 
@@ -22,7 +23,8 @@ folder; the Python package never imports consumer application code.
 2. **Optional `livekit.dispatch_metadata`** — default opaque JSON for all runs.
 3. **Optional per-scenario `Dispatch.metadata`** — overrides config default.
 4. **`observe.data_topics`** — list topics your agent publishes (empty = record all).
-5. **`observe.tool_event_patterns`** — only if you want `tool.start` / `tool.end` in the log.
+5. **`observe.lk_agent_session`** — defaults to `true`; disable only for non-SDK agents.
+6. **`observe.tool_event_patterns`** — optional fallback when the agent publishes a custom tool wire format.
 
 ## Example: app-built dispatch metadata
 
@@ -39,9 +41,11 @@ from job metadata (e.g. `customAgentId`). The simulator only forwards that JSON 
 
 ```yaml
 observe:
+  lk_agent_session: true
   data_topics:
     - myapp.flow
     - myapp.transcript
+  # Only needed if this agent does not expose SDK tool events:
   tool_event_patterns:
     - match: { topic: myapp.flow, type: tool_started }
       emit: tool.start
@@ -56,6 +60,8 @@ livekit:
   agent_name: "their-agent"
 observe:
   lk_transcription: true
+  # Set false if this agent does not implement LiveKit Agents RemoteSession.
+  lk_agent_session: false
   data_topics: []
   tool_event_patterns: []
 ```

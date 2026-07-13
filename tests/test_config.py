@@ -1,6 +1,11 @@
 import pytest
 
-from livekit_agent_simulator.config import ConfigError, config_snapshot, load_config
+from livekit_agent_simulator.config import (
+    ConfigError,
+    ObserveConfig,
+    config_snapshot,
+    load_config,
+)
 
 VALID_CONFIG = """
 project: demo
@@ -44,9 +49,11 @@ def test_load_valid_config(tmp_path):
     assert cfg.observe.silence_threshold_ms == 3000
     assert cfg.observe.record_audio is True
     assert cfg.observe.audio_recording_enabled is True
+    assert cfg.observe.lk_agent_session is True
     assert cfg.observe.tool_event_patterns[0].emit == "tool.start"
     assert cfg.sqlite_path == tmp_path / ".agent-sim" / "runs.sqlite"
     assert config_snapshot(cfg)["observe"]["record_audio"] is True
+    assert config_snapshot(cfg)["observe"]["lk_agent_session"] is True
 
 
 def test_missing_config_file(tmp_path):
@@ -74,3 +81,12 @@ def test_snapshot_never_leaks_secrets(tmp_path):
     assert "AIzaTest" not in text
     assert "APIkey" not in text
     assert snap["livekit"]["agent_name"] == "my-agent-local"
+
+
+def test_tool_gap_only_when_session_and_patterns_are_disabled(tmp_path):
+    cfg = load_config(_write(tmp_path, VALID_CONFIG.replace("  tool_event_patterns:", "  lk_agent_session: false\n  tool_event_patterns:")))
+    cfg.observe.tool_event_patterns = []
+    assert config_snapshot(cfg)["observe_gaps"] == ["tool_events"]
+
+    cfg.observe = ObserveConfig()
+    assert config_snapshot(cfg)["observe_gaps"] == []

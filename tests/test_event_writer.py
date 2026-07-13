@@ -64,6 +64,12 @@ def test_finalize_writes_artifacts_and_metrics(tmp_path):
         source="voice_ai.flow",
         parent_event_id=start["event_id"],
     )
+    w.emit(
+        "session.agent_state",
+        spec={"old_state": "LISTENING", "new_state": "THINKING"},
+        source="lk.agent.session",
+        include_dialogue=False,
+    )
     w.emit("transcript.agent.final", spec={"text": "sorry, error", "turn_taking_ms": 3100})
 
     summary = w.finalize("done", meta={"run_id": "r-test", "scenario_id": "s1"})
@@ -85,6 +91,7 @@ def test_finalize_writes_artifacts_and_metrics(tmp_path):
     assert (report_dir / "meta.json").exists()
     timeline = (report_dir / "timeline.md").read_text(encoding="utf-8")
     assert "tool.error" in timeline
+    assert "LISTENING → THINKING" in timeline
     assert "⚠ slow" in timeline  # 3100ms > default 2500ms warn
 
     events = [json.loads(l) for l in (report_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
