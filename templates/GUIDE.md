@@ -245,6 +245,7 @@ lk-sim execute my-case --root /path/to/target
 lk-sim execute my-case --repeat 5 --pass-at-k 3   # pass@k flake control
 lk-sim execute-all --tag smoke --root /path/to/target
 lk-sim execute-all --tag smoke --repeat 3 --pass-at-k 2   # flake in batch
+lk-sim execute-all --tag smoke --parallel 3 --root /path/to/target  # up to 3 scenarios at once
 # In-memory (CI / agents): MCP execute_scenario_dict or CLI execute-dict -f file.json
 ```
 
@@ -336,7 +337,7 @@ Full guide: https://github.com/quangdang46/livekit-agent-simulator/blob/main/doc
 | `export` | `export_scenario` |
 | `scenario-init` | `init_scenario` |
 | `execute` | `execute_scenario` (flags: ``--repeat N --pass-at-k K``) |
-| `execute-all` | `execute_scenarios` (suite matrix + CI gate; flags: ``--repeat --pass-at-k``) |
+| `execute-all` | `execute_scenarios` (suite matrix + CI gate; flags: ``--repeat --pass-at-k --parallel N``) |
 | `execute-dict` | `execute_scenario_dict` |
 | `scenario-from-run` | `scenario_from_run` |
 | `status` | `get_run_status` |

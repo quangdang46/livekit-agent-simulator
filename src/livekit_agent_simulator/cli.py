@@ -265,6 +265,13 @@ def execute_all_cmd(
         "-k",
         help="Minimum hard-pass iterations per scenario (default = repeat)",
     ),
+    parallel: int = typer.Option(
+        1,
+        "--parallel",
+        "-p",
+        help="Run up to N scenarios at once (default 1 = sequential). "
+        "Within each scenario, --repeat stays sequential.",
+    ),
     root: Optional[Path] = ROOT_OPTION,
 ) -> None:
     """Execute multiple scenarios; print suite matrix + CI gate. (MCP: execute_scenarios)"""
@@ -277,6 +284,7 @@ def execute_all_cmd(
             write_report=not no_report,
             repeat=repeat,
             pass_at_k=pass_at_k,
+            parallel=parallel,
         )
     )
     _print(result)

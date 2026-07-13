@@ -390,6 +390,7 @@ async def execute_scenarios(
     write_report: bool = True,
     repeat: int = 1,
     pass_at_k: int | None = None,
+    parallel: int = 1,
 ) -> dict[str, Any]:
     """Run multiple scenarios + suite matrix / CI gate.
 
@@ -397,8 +398,15 @@ async def execute_scenarios(
     Judge fail is soft unless ``strict_judge=True``.
 
     ``repeat`` / ``pass_at_k`` propagate to each scenario (pass@k).
+    ``parallel`` runs up to N scenarios concurrently (default 1 = sequential).
+    Within a scenario, ``repeat`` iterations stay sequential.
     """
+    import asyncio
+
     from .suite import build_suite_report, write_suite_report
+
+    if parallel < 1:
+        raise ValueError(f"parallel must be >= 1, got {parallel}")
 
     cfg = load_config(project_root)
     listed = _list_scenarios(cfg.scenarios_dir)
@@ -410,20 +418,33 @@ async def execute_scenarios(
             for item in listed
             if item.get("id") and not item.get("error") and (not tag or tag in (item.get("tags") or []))
         ]
-    results: list[dict[str, Any]] = []
-    for sid in targets:
+
+    async def _one(sid: str) -> dict[str, Any]:
         try:
-            results.append(
-                await execute_scenario(project_root, sid, repeat=repeat, pass_at_k=pass_at_k)
+            return await execute_scenario(
+                project_root, sid, repeat=repeat, pass_at_k=pass_at_k
             )
         except Exception as e:
-            results.append(
-                {
-                    "executed": False,
-                    "scenario_id": sid,
-                    "error": f"{type(e).__name__}: {e}",
-                }
-            )
+            return {
+                "executed": False,
+                "scenario_id": sid,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
+    if parallel == 1 or len(targets) <= 1:
+        results: list[dict[str, Any]] = []
+        for sid in targets:
+            results.append(await _one(sid))
+    else:
+        sem = asyncio.Semaphore(parallel)
+
+        async def _bounded(sid: str) -> dict[str, Any]:
+            async with sem:
+                return await _one(sid)
+
+        # Preserve input order in the suite matrix
+        results = list(await asyncio.gather(*[_bounded(sid) for sid in targets]))
+
     suite = build_suite_report(results, strict_judge=strict_judge, tag=tag)
     out: dict[str, Any] = {
         "count": len(results),
@@ -431,6 +452,7 @@ async def execute_scenarios(
         "suite": suite,
         "ok": suite["ok"],
         "exit_code": suite["exit_code"],
+        "parallel": parallel,
     }
     if write_report:
         paths = write_suite_report(suite, cfg.reports_dir)

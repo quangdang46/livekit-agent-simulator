@@ -119,10 +119,12 @@ async def execute_scenarios(
     write_report: bool = True,
     repeat: int = 1,
     pass_at_k: int | None = None,
+    parallel: int = 1,
 ) -> dict[str, Any]:
     """Execute multiple scenarios; returns suite matrix + CI gate (hard: assert/script/status).
 
     ``repeat`` / ``pass_at_k`` propagate to each scenario for flake control.
+    ``parallel``: max concurrent scenarios (default 1 = sequential).
     """
     return await ops.execute_scenarios(
         project_root,
@@ -132,6 +134,7 @@ async def execute_scenarios(
         write_report=write_report,
         repeat=repeat,
         pass_at_k=pass_at_k,
+        parallel=parallel,
     )
 
 
