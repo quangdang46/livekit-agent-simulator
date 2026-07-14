@@ -68,6 +68,7 @@ class GeminiCallerBridge:
         persona_system_prompt: str,
         first_speaker: str,
         recorder: LocalConversationRecorder | None = None,
+        midcall_cues: list | None = None,
     ) -> None:
         self.cfg = cfg
         self.room = room
@@ -76,6 +77,8 @@ class GeminiCallerBridge:
         self.persona_system_prompt = persona_system_prompt
         self.first_speaker = first_speaker
         self.recorder = recorder
+        # Dialog steering texts from CallerPolicy (bootstrap / reground); not PCM Script.
+        self._midcall_cues = list(midcall_cues or [])
 
         self.end_call = asyncio.Event()
         self._agent_track_queue: asyncio.Queue[rtc.RemoteAudioTrack] = asyncio.Queue()
@@ -255,10 +258,7 @@ class GeminiCallerBridge:
                 source="sim",
                 include_dialogue=False,
             )
-            if self.first_speaker == "user":
-                await session.send_realtime_input(
-                    text="(The call just connected. You speak first, per your instructions.)"
-                )
+            await self._emit_bootstrap_cues(session)
 
             self._tasks = [
                 asyncio.create_task(self._pump_agent_audio(session), name="agent->gemini"),
@@ -274,6 +274,51 @@ class GeminiCallerBridge:
                 if self._mixer is not None:
                     await self._mixer.aclose()
                     self._mixer = None
+
+
+    async def _emit_bootstrap_cues(self, session: Any) -> None:
+        """Send policy bootstrap texts (first speaker). Reground cues are on-demand."""
+        for cue in self._midcall_cues:
+            kind = getattr(cue, "kind", "") or ""
+            if kind != "bootstrap":
+                continue
+            text = str(getattr(cue, "text", "") or "").strip()
+            if not text:
+                continue
+            await session.send_realtime_input(text=text)
+            self.writer.emit(
+                "sim.caller_midcall",
+                spec={
+                    "kind": kind,
+                    "label": getattr(cue, "label", None),
+                    "text": text[:240],
+                },
+                source="sim",
+                include_dialogue=False,
+            )
+
+    async def inject_reground(self, *, label: str | None = None) -> None:
+        """Inject the first reground MidcallCue (goal focus). No-op if none / session down."""
+        if self._live_session is None:
+            return
+        for cue in self._midcall_cues:
+            if getattr(cue, "kind", "") != "reground":
+                continue
+            text = str(getattr(cue, "text", "") or "").strip()
+            if not text:
+                continue
+            await self._live_session.send_realtime_input(text=text)
+            self.writer.emit(
+                "sim.caller_midcall",
+                spec={
+                    "kind": "reground",
+                    "label": label or getattr(cue, "label", None),
+                    "text": text[:240],
+                },
+                source="sim",
+                include_dialogue=False,
+            )
+            return
 
     def stop(self) -> None:
         self.end_call.set()

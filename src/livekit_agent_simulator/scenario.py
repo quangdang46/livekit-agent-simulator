@@ -250,110 +250,19 @@ class Scenario:
     def persona_system_prompt(self) -> str:
         """Build the Gemini Live system instruction for the simulated caller.
 
-        Follows Google Live API best practices: persona → numbered goals → guardrails.
-        Goals are a checklist; premature [END_CALL] is guarded in the prompt.
-        External verification via ``Assert.spec.outcomes[].type: goals_met`` runs
-        as a post-run LLM judge for independent confirmation (Hamming-style).
+        Delegates to ``caller.DefaultCallerPolicy`` (Strategy + Composite sections).
+        Google Live order: persona → conversational rules → guardrails.
+        Interaction timing remains Script/Behavior (not this string alone).
         """
-        p = self.persona
-        locale = self.effective_locale()
-        goals_list = p.get("goals") or []
-        if isinstance(goals_list, str):
-            goals_list = [goals_list]
-        goals_list = [str(g).strip() for g in goals_list if str(g).strip()]
+        from .caller import build_persona_system_instruction
 
-        lines = [
-            "## ROLE",
-            "You are role-playing a HUMAN CALLER on a phone call with a voice assistant.",
-            "You are NOT an assistant. Never offer help; you are the customer.",
-            f"Speak only in the language/locale: {locale}.",
-            "Keep every utterance short and natural like real phone speech (1-2 sentences).",
-            "Never mention that you are an AI or a simulation.",
-        ]
-        if p.get("name"):
-            lines.append(f"Your name: {p['name']}.")
-        if p.get("brief"):
-            lines.append(f"Who you are and why you are calling: {p['brief']}")
-        if goals_list:
-            lines.append("")
-            lines.append("## YOUR GOALS (complete each one before moving to the next)")
-            for i, g in enumerate(goals_list, 1):
-                lines.append(f"GOAL {i}: {g}")
-            lines.append("")
-            lines.append("IMPORTANT: You MUST work through ALL goals one by one.")
-            lines.append("Do NOT skip ahead to a later goal before the current one is addressed.")
-            lines.append("Do NOT say goodbye or [END_CALL] until you have addressed ALL goals.")
-            lines.append("If the agent cannot help with one goal, state it and move to the next.")
-        if p.get("style"):
-            lines.append(f"Speaking style: {p['style']}")
-        traits = p.get("traits") or p.get("behaviors") or []
-        if isinstance(traits, str):
-            traits = [traits]
-        if traits:
-            from .persona_traits import expand_traits
-
-            lines.append(
-                "Caller behavior traits (follow while staying natural): "
-                + ", ".join(str(t) for t in traits)
-            )
-            lines.extend(expand_traits(traits))
-        constraints = p.get("constraints") or []
-        if isinstance(constraints, str):
-            constraints = [constraints]
-        constraints = [str(c).strip() for c in constraints if str(c).strip()]
-        if constraints:
-            lines.append("Hard constraints (do not violate):")
-            for c in constraints:
-                lines.append(f"- {c}")
-        sc = p.get("speech_conditions") or p.get("speechConditions") or {}
-        if isinstance(sc, dict) and sc:
-            bits = []
-            if sc.get("barge_policy"):
-                bits.append(f"barge_policy={sc.get('barge_policy')}")
-            if sc.get("silence_ms") or sc.get("user_silence_ms"):
-                bits.append(
-                    f"may go silent ~{sc.get('silence_ms') or sc.get('user_silence_ms')}ms "
-                    "(simulator may enforce this)"
-                )
-            if sc.get("noise") or sc.get("ambient"):
-                bits.append("there may be background noise on the line")
-            if bits:
-                lines.append("Speech conditions: " + "; ".join(bits) + ".")
-        if self.context.get("notes"):
-            lines.append(f"Background context you know: {self.context['notes']}")
-        fixtures = self.context.get("fixtures")
-        if isinstance(fixtures, dict) and fixtures:
-            # Opaque hints for the caller (not parsed as business keys by core).
-            lines.append(
-                "You may know these test fixture hints (use only if natural): "
-                + ", ".join(f"{k}={v}" for k, v in list(fixtures.items())[:12])
-            )
-        if self.script_steps:
-            lines.append(
-                "Timed caller cues are injected automatically by the simulator while the agent speaks. "
-                "Do NOT try to backchannel or interrupt on your own timing — stay quiet and listen unless "
-                "you are answering a direct question after the agent finishes."
-            )
-        if self.run_spec.first_speaker == "agent":
-            lines.append("Wait for the assistant to greet you first, then respond.")
-        else:
-            lines.append("You speak first: greet briefly and state why you are calling.")
-        # Guardrails against premature end
-        lines.append("")
-        lines.append("## GUARDRAILS")
-        lines.append("Your job is to pursue your goals. Only end the call when ALL goals are done.")
-        lines.append("If you say goodbye or emit [END_CALL] early, the test will FAIL.")
-        lines.append("If the agent says something irrelevant, steer back to your goals.")
-        lines.append(
-            "When all goals are handled, say a short goodbye in your language only, "
-            "then append the exact harness marker [END_CALL] once and stop speaking."
+        return build_persona_system_instruction(
+            persona=self.persona,
+            locale=self.effective_locale(),
+            context=self.context if isinstance(self.context, dict) else {},
+            script_steps=self.script_steps,
+            first_speaker=self.run_spec.first_speaker,
         )
-        lines.append(
-            'NEVER pronounce the English words "end call", "hang up", or "END CALL", '
-            "and do not read brackets aloud — that leaks into the room recording. "
-            "The marker is for the test harness transcript only."
-        )
-        return "\n".join(lines)
 
 
 def parse_scenario(path: Path | str) -> Scenario:

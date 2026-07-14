@@ -182,6 +182,15 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
 
             # Gemini brain always on sim_room (WebRTC: same as agent_room).
             # Recorder still gets L=sim via mixer; R=agent via Observer (not only Gemini listen path).
+            from .caller import DefaultCallerPolicy
+            from .caller.policy import CallerPolicyContext
+            _midcall_ctx = CallerPolicyContext(
+                persona=dict(scenario.persona or {}),
+                locale=scenario.effective_locale(),
+                context=dict(scenario.context or {}),
+                first_speaker=run.first_speaker,
+            )
+            _midcall_cues = DefaultCallerPolicy().midcall_cues(_midcall_ctx)
             bridge = GeminiCallerBridge(
                 cfg,
                 leg_handle.sim_room,
@@ -190,6 +199,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 persona_system_prompt=scenario.persona_system_prompt(),
                 first_speaker=run.first_speaker,
                 recorder=recorder,
+                midcall_cues=_midcall_cues,
             )
             # Listen/record feed derived from SimLegHandle — no mode ifs.
             if leg_handle.gemini_listen_agent_room:
