@@ -58,19 +58,28 @@ def evaluate_script_log(
         or (e.get("spec") or {}).get("action") == "wait"
     ]
     silence_ms = silence_cues[0]["ts_mono_ms"] if silence_cues else None
-    barge_cues = [
-        e
-        for e in cues
-        if e.get("kind") == "sim.script.cue"
-        and (
-            (e.get("spec") or {}).get("barge_in")
-            or (
-                (e.get("spec") or {}).get("during_agent_speech")
-                and (e.get("spec") or {}).get("trigger") == "agent_speaking"
-                and int((e.get("spec") or {}).get("waited_ms") or 9999) < 800
-            )
-        )
-    ]
+    from .models import counts_for_recovery_barge
+
+    barge_cues = []
+    for e in cues:
+        if e.get("kind") != "sim.script.cue":
+            continue
+        spec = e.get("spec") or {}
+        cls = spec.get("class") or spec.get("interrupt_class")
+        cls_s = str(cls) if cls else None
+        if counts_for_recovery_barge(
+            barge_in=bool(spec.get("barge_in")), interrupt_class=cls_s
+        ):
+            barge_cues.append(e)
+            continue
+        # Legacy heuristic: short during-agent cue without class (treat as correction)
+        if (
+            not cls_s
+            and spec.get("during_agent_speech")
+            and spec.get("trigger") == "agent_speaking"
+            and int(spec.get("waited_ms") or 9999) < 800
+        ):
+            barge_cues.append(e)
     barge_ms = barge_cues[0]["ts_mono_ms"] if barge_cues else None
 
     agent_after_cue = (

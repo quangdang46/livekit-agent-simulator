@@ -8,6 +8,64 @@ from typing import Any
 SUPPORTED_TRIGGERS = frozenset({"agent_speaking", "silence", "time"})
 SUPPORTED_ACTIONS = frozenset({"speak", "wait", "hang_up"})
 
+# Hamming-aligned mid-call input classes (P1.F). JSON field name: ``class``.
+INTERRUPTION_CLASSES = frozenset(
+    {"correction", "backchannel", "noise", "dtmf", "silence", "escalate"}
+)
+# Only these (with barge_in) feed recovery asserts / barge_recovery_rate.
+RECOVERY_BARGE_CLASSES = frozenset({"correction", "escalate"})
+
+
+def normalize_interrupt_class(
+    raw: Any,
+    *,
+    barge_in: bool = False,
+    default_when_barge: str = "correction",
+) -> str | None:
+    """Return a supported class or None.
+
+    ``barge_in=True`` without class defaults to ``correction`` so existing scenarios
+    keep recovery semantics.
+    """
+    if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+        return default_when_barge if barge_in else None
+    key = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "true_correction": "correction",
+        "correct": "correction",
+        "barge": "correction",
+        "ack": "backchannel",
+        "uhhuh": "backchannel",
+        "uh_huh": "backchannel",
+        "false_positive": "noise",
+        "false_interrupt": "noise",
+        "click": "noise",
+        "digit": "dtmf",
+        "digits": "dtmf",
+        "human": "escalate",
+        "handoff": "escalate",
+        "safety": "escalate",
+    }
+    key = aliases.get(key, key)
+    if key not in INTERRUPTION_CLASSES:
+        raise ValueError(
+            f"unsupported interrupt class {raw!r} "
+            f"(supported: {sorted(INTERRUPTION_CLASSES)})"
+        )
+    return key
+
+
+def counts_for_recovery_barge(
+    *,
+    barge_in: bool,
+    interrupt_class: str | None,
+) -> bool:
+    """True when this cue should drive recovery asserts / barge_recovery_rate."""
+    if not barge_in:
+        return False
+    cls = interrupt_class or "correction"
+    return cls in RECOVERY_BARGE_CLASSES
+
 
 @dataclass(frozen=True)
 class ScriptStep:
@@ -29,6 +87,8 @@ class ScriptStep:
     with_blip: bool = True
     # Linear playback gain for this cue (0.0–1.0). Applies to gemini_text TTS and room_pcm.
     gain: float = 1.0
+    # Hamming class: correction | backchannel | noise | dtmf | silence | escalate
+    interrupt_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,5 +104,3 @@ class ScriptVerifySpec:
     min_agent_finals_after_barge_in: int = 0
     plugins: tuple[str, ...] = ()
     plugin_options: dict[str, Any] = field(default_factory=dict)
-
-

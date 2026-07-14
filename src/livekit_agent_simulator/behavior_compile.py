@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .script import ScriptStep, ScriptVerifySpec
+from .script import ScriptStep, ScriptVerifySpec, normalize_interrupt_class
 
 
 def _is_voice_asset(asset: str | None) -> bool:
@@ -77,6 +77,10 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
         barge_gain = float(sc.get("barge_gain", sc.get("gain", 1.0)))
         if not 0.0 <= barge_gain <= 1.0:
             raise ValueError("Persona.speech_conditions.barge_gain must be between 0.0 and 1.0")
+        barge_class = normalize_interrupt_class(
+            sc.get("barge_class") or sc.get("class") or "correction",
+            barge_in=True,
+        )
         steps.append(
             ScriptStep(
                 id="auto-barge-1",
@@ -91,6 +95,7 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
                 with_blip=with_blip,
                 once=True,
                 gain=barge_gain,
+                interrupt_class=barge_class,
             )
         )
 
@@ -159,6 +164,13 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
         step_gain = float(raw.get("gain", raw.get("volume", 1.0)))
         if not 0.0 <= step_gain <= 1.0:
             raise ValueError(f"{path_label}: barge_ins[{i}] gain must be between 0.0 and 1.0")
+        try:
+            icls = normalize_interrupt_class(
+                raw.get("class") or raw.get("interrupt_class") or "correction",
+                barge_in=True,
+            )
+        except ValueError as e:
+            raise ValueError(f"{path_label}: barge_ins[{i}]: {e}") from e
         steps.append(
             ScriptStep(
                 id=sid,
@@ -173,6 +185,67 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
                 with_blip=with_blip,
                 once=bool(raw.get("once", True)),
                 gain=step_gain,
+                interrupt_class=icls,
+            )
+        )
+
+    for i, raw in enumerate(spec.get("backchannels") or spec.get("backchannel") or []):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path_label}: backchannels[{i}] must be object")
+        sid = str(raw.get("id") or f"behavior-backchannel-{i}")
+        after = int(raw.get("after_agent_ms") or raw.get("delay_ms") or 1200)
+        say = str(raw.get("say") or raw.get("text") or "uh-huh").strip()
+        asset = raw.get("asset") or "builtin:voice.backchannel"
+        asset_s = str(asset).strip()
+        step_gain = float(raw.get("gain", raw.get("volume", 1.0)))
+        if not 0.0 <= step_gain <= 1.0:
+            raise ValueError(f"{path_label}: backchannels[{i}] gain must be between 0.0 and 1.0")
+        steps.append(
+            ScriptStep(
+                id=sid,
+                trigger="agent_speaking",
+                delay_ms=max(100, after),
+                say=say,
+                label=str(raw.get("label") or sid),
+                min_agent_active_ms=max(100, int(raw.get("min_agent_active_ms") or after)),
+                delivery="room_pcm",
+                asset=asset_s,
+                barge_in=False,
+                with_blip=False,
+                once=bool(raw.get("once", True)),
+                gain=step_gain,
+                interrupt_class="backchannel",
+            )
+        )
+
+    for i, raw in enumerate(spec.get("false_interrupts") or spec.get("false_interrupt") or []):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path_label}: false_interrupts[{i}] must be object")
+        sid = str(raw.get("id") or f"behavior-noise-{i}")
+        after = int(raw.get("after_agent_ms") or raw.get("delay_ms") or 500)
+        say = str(raw.get("say") or raw.get("text") or "[noise]").strip()
+        asset = raw.get("asset") or "builtin:noise.loud"
+        asset_s = str(asset).strip()
+        step_gain = float(raw.get("gain", raw.get("volume", 1.0)))
+        if not 0.0 <= step_gain <= 1.0:
+            raise ValueError(f"{path_label}: false_interrupts[{i}] gain must be between 0.0 and 1.0")
+        # barge_in True so it fires during agent speech + optional blip energy,
+        # but class=noise excludes it from recovery metrics.
+        steps.append(
+            ScriptStep(
+                id=sid,
+                trigger="agent_speaking",
+                delay_ms=max(100, after),
+                say=say,
+                label=str(raw.get("label") or sid),
+                min_agent_active_ms=max(100, int(raw.get("min_agent_active_ms") or after)),
+                delivery="room_pcm",
+                asset=asset_s,
+                barge_in=True,
+                with_blip=bool(raw.get("with_blip", False)),
+                once=bool(raw.get("once", True)),
+                gain=step_gain,
+                interrupt_class="noise",
             )
         )
 
@@ -227,7 +300,14 @@ def default_verify_for_compiled(
     """If we auto-added barge/silence and no verify, soft defaults for recovery."""
     if existing is not None:
         return existing
-    has_barge = any(s.barge_in for s in steps)
+    from .script.models import counts_for_recovery_barge
+
+    has_barge = any(
+        counts_for_recovery_barge(
+            barge_in=s.barge_in, interrupt_class=s.interrupt_class
+        )
+        for s in steps
+    )
     has_silence = any(s.action == "wait" and s.silence_after_cue_ms > 0 for s in steps)
     if not has_barge and not has_silence:
         return None

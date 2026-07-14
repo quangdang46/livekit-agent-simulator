@@ -29,7 +29,7 @@
 // === Behavior (optional, Hamming policy) — compiles to Script if present ===
 // barge_ins[], user_silence[], hang_ups[], ambient{asset,delay_ms}
 // Explicit Script below wins on same step id
-// {"kind":"Behavior","spec":{"barge_ins":[{"id":"cut1","after_agent_ms":800,"say":"Wait — one second","with_blip":true}],"ambient":{"asset":"builtin:noise.ambient","delay_ms":5000}}}
+// {"kind":"Behavior","spec":{"barge_ins":[{"id":"cut1","after_agent_ms":800,"say":"Wait — one second","class":"correction","with_blip":true}],"backchannels":[{"id":"uh1","after_agent_ms":1200,"asset":"builtin:voice.backchannel"}],"false_interrupts":[{"id":"n1","after_agent_ms":400,"asset":"builtin:noise.loud"}],"ambient":{"asset":"builtin:noise.ambient","delay_ms":5000}}}
 // === Script (optional) — timed cues; omit if speech_conditions/Behavior enough ===
 // trigger: agent_speaking | silence | time
 // action: speak | wait | hang_up

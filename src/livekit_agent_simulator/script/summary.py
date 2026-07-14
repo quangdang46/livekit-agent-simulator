@@ -11,7 +11,20 @@ def build_caller_behavior_summary(events: list[dict]) -> dict[str, Any]:
     """
     cues = [e for e in events if e.get("kind") == "sim.script.cue"]
     waits = [e for e in events if e.get("kind") == "sim.script.wait"]
-    barges = [e for e in cues if (e.get("spec") or {}).get("barge_in")]
+    from .models import counts_for_recovery_barge
+
+    barges = []
+    by_class: dict[str, int] = {}
+    for e in cues:
+        spec = e.get("spec") or {}
+        cls = str(spec.get("class") or spec.get("interrupt_class") or "") or None
+        if cls:
+            by_class[cls] = by_class.get(cls, 0) + 1
+        if counts_for_recovery_barge(
+            barge_in=bool(spec.get("barge_in")),
+            interrupt_class=cls,
+        ):
+            barges.append(e)
     barges_during = [
         e for e in barges if (e.get("spec") or {}).get("during_agent_speech")
     ]
@@ -66,6 +79,7 @@ def build_caller_behavior_summary(events: list[dict]) -> dict[str, Any]:
         "agent_finals_after_silence": agent_after_silence,
         "recovery_ms": recovery_ms,
         "cue_assets": assets,
+        "by_class": by_class,
     }
 
 

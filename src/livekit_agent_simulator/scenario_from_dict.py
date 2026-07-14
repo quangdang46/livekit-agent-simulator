@@ -196,6 +196,7 @@ def export_scenario_dict(scenario: Scenario) -> dict[str, Any]:
                     "asset": s.asset,
                     "silence_after_cue_ms": s.silence_after_cue_ms,
                     "barge_in": s.barge_in,
+                    "class": s.interrupt_class,
                     "with_blip": s.with_blip,
                     "gain": s.gain,
                 }

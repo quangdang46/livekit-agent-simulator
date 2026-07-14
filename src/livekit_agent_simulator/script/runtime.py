@@ -202,11 +202,14 @@ class ScriptRunner:
                     self.bridge.suppress_persona_output(hold_silence_ms)
                 # Forensic: mark sim-initiated cut-in so summary/web show interrupted turns.
                 if step.barge_in and during_agent_speech and inject_error is None:
+                    icls = step.interrupt_class or "correction"
                     self.writer.emit(
                         "interruption",
                         spec={
                             "by": "sim",
                             "barge_in": True,
+                            "class": icls,
+                            "false_positive": icls in ("noise", "backchannel"),
                             "step_id": step.id,
                             "label": step.label or step.id,
                             "say": step.say,
@@ -224,6 +227,7 @@ class ScriptRunner:
                     "trigger": step.trigger,
                     "action": step.action,
                     "barge_in": step.barge_in,
+                    "class": step.interrupt_class,
                     "delivery": step.delivery if step.action != "wait" else None,
                     "asset": step.asset if step.action != "wait" else None,
                     "gain": step.gain if step.action == "speak" else None,

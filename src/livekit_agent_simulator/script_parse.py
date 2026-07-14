@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .script import SUPPORTED_ACTIONS, SUPPORTED_TRIGGERS, ScriptStep, ScriptVerifySpec
+from .script import (
+    SUPPORTED_ACTIONS,
+    SUPPORTED_TRIGGERS,
+    ScriptStep,
+    ScriptVerifySpec,
+    normalize_interrupt_class,
+)
 
 
 def _parse_step_gain(raw: dict[str, Any], path_label: str, step_id: str) -> float:
@@ -111,6 +117,13 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
         else:
             with_blip = barge_in and delivery != "room_pcm"
         gain = _parse_step_gain(raw, path_label, step_id)
+        try:
+            interrupt_class = normalize_interrupt_class(
+                raw.get("class") or raw.get("interrupt_class"),
+                barge_in=barge_in,
+            )
+        except ValueError as e:
+            raise ValueError(f"{path_label}: Script step {step_id!r}: {e}") from e
 
         steps.append(
             ScriptStep(
@@ -129,6 +142,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 barge_in=barge_in,
                 with_blip=with_blip,
                 gain=gain,
+                interrupt_class=interrupt_class,
             )
         )
     return steps

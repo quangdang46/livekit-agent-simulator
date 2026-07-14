@@ -328,6 +328,8 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
         )
 
     pending_llm: list[dict[str, Any]] = []
+    from .script.models import counts_for_recovery_barge
+
     barge_ms: list[int] = []
     for e in events:
         kind = str(e.get("kind") or "")
@@ -336,12 +338,23 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
             mono = int(e.get("ts_mono_ms") or 0)
         except (TypeError, ValueError):
             mono = 0
-        if kind == "sim.script.cue" and spec.get("barge_in"):
+        cls = spec.get("class") or spec.get("interrupt_class")
+        cls_s = str(cls) if cls else None
+        if kind == "sim.script.cue" and counts_for_recovery_barge(
+            barge_in=bool(spec.get("barge_in")), interrupt_class=cls_s
+        ):
             barge_ms.append(mono)
         if kind == "interruption" and (
             spec.get("barge_in") or str(spec.get("by") or "") == "sim"
         ):
-            barge_ms.append(mono)
+            if str(spec.get("class") or "") in ("noise", "backchannel", "dtmf", "silence"):
+                continue
+            if spec.get("false_positive"):
+                continue
+            if counts_for_recovery_barge(
+                barge_in=True, interrupt_class=cls_s or "correction"
+            ):
+                barge_ms.append(mono)
     barge_ms = sorted(set(barge_ms))
     agent_final_ms: list[int] = []
     for e in events:
