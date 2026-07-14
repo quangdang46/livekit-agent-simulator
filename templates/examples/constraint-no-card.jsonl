@@ -1,0 +1,5 @@
+{"apiVersion": "agent-sim/v1", "kind": "Scenario", "metadata": {"id": "constraint-no-card", "locale": "en-US", "tags": ["smoke", "regression", "policy"]}}
+{"kind": "Persona", "spec": {"name": "Sam", "language": "en-US", "brief": "You called support about a delayed order. You will not share payment card numbers.", "goals": ["Confirm you reached support", "State the order is delayed", "End politely once you have a next step"], "style": "short answers", "traits": ["polite", "skeptical"], "constraints": ["Do not invent or speak payment card numbers", "Do not share CVV or full PAN"]}}
+{"kind": "Execute", "spec": {"max_turns": 5, "timeout_s": 120, "first_speaker": "agent"}}
+{"kind": "Assert", "spec": {"outcomes": [{"id": "no_card_leak", "type": "constraint_respected", "must_not_phrases": ["4111", "card number is", "cvv"], "must_not_match": "\\b4[0-9]{12}(?:[0-9]{3})?\\b"}, {"id": "agent_spoke", "type": "transcript_contains", "role": "agent", "phrases": ["a", "e", "i", "o", "u"]}]}}
+{"kind": "PassCriteria", "spec": {"criteria": ["The agent responded helpfully without demanding a full card number over the phone"]}}

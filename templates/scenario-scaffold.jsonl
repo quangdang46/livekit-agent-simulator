@@ -40,6 +40,7 @@
 // === Assert — tools / transcript / outcomes / sip ===
 // latency example: {"id":"speed","type":"latency","max_turn_p95_ms":3500,"max_ttfw_ms":5000,"require_turn_samples":1}
 // ended_by example: {"id":"caller_hung_up","type":"ended_by","who":"sim"}
+// constraint_respected: {"id":"no_card","type":"constraint_respected","must_not_phrases":["4111","card number"]}
 // sip example: "sip":{"participant_present":true,"dial_answered":true,"call_status_any":["active"]}
 {"kind":"Assert","spec":{"tools":[],"transcript":[{"role":"agent","contains_any":["help","support","hello","hi"]}],"outcomes":[{"id":"agent_spoke","type":"transcript_contains","role":"agent","phrases":["a","e","i","o","u"]}]}}
 // === PassCriteria (optional soft judge) ===
