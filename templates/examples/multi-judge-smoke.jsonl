@@ -1,0 +1,5 @@
+{"apiVersion": "agent-sim/v1", "kind": "Scenario", "metadata": {"id": "multi-judge-smoke", "locale": "en-US", "tags": ["smoke", "regression"]}}
+{"kind": "Persona", "spec": {"name": "Alex", "language": "en-US", "brief": "You called for a quick status check.", "goals": ["Confirm you reached the agent", "Get a short status", "End politely"], "style": "brief", "traits": ["polite"]}}
+{"kind": "Execute", "spec": {"max_turns": 4, "timeout_s": 100, "first_speaker": "agent"}}
+{"kind": "Assert", "spec": {"outcomes": [{"id": "agent_spoke", "type": "transcript_contains", "role": "agent", "phrases": ["a", "e", "i", "o", "u"]}]}}
+{"kind": "PassCriteria", "spec": {"mode": "all", "judges": [{"id": "task", "criteria": ["The agent responded to the caller's request"]}, {"id": "clarity", "criteria": ["The agent spoke in a language the caller can understand"]}]}}

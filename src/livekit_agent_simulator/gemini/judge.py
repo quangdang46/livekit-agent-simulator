@@ -99,3 +99,58 @@ async def _judge(
         return json.loads(response.text or "{}")
     except json.JSONDecodeError:
         return {"verdict": "error", "notes": f"Judge returned non-JSON: {(response.text or '')[:500]}"}
+
+
+async def judge_run_multi(
+    judge_cfg: JudgeConfig,
+    google_api_key: str,
+    judges: list[dict[str, Any]],
+    mode: str,
+    turns: list[dict[str, Any]],
+    tool_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Run one LLM judge per group; aggregate by mode all|majority|any.
+
+    Each judge dict: {"id": str, "criteria": list[str]}.
+    Returns combined verdict plus per-judge results (LiveKit JudgeGroup-shaped).
+    """
+    if not judges:
+        return {"verdict": "skipped", "notes": "No judges."}
+
+    results: list[dict[str, Any]] = []
+    for j in judges:
+        jid = str(j.get("id") or "judge")
+        criteria = list(j.get("criteria") or [])
+        one = await _judge(judge_cfg, google_api_key, criteria, turns, tool_events, goals_met=None)
+        one = dict(one or {})
+        one["judge_id"] = jid
+        results.append(one)
+
+    passes = [r for r in results if str(r.get("verdict") or "").lower() == "pass"]
+    fails = [r for r in results if str(r.get("verdict") or "").lower() == "fail"]
+    n = len(results)
+    mode_l = (mode or "all").lower()
+    if mode_l == "any":
+        ok = len(passes) >= 1
+    elif mode_l == "majority":
+        ok = len(passes) > n / 2
+    else:  # all
+        ok = len(fails) == 0 and len(passes) == n
+
+    scores = []
+    for r in results:
+        try:
+            scores.append(float(r.get("score")))
+        except (TypeError, ValueError):
+            pass
+    avg = sum(scores) / len(scores) if scores else None
+
+    return {
+        "verdict": "pass" if ok else "fail",
+        "score": avg,
+        "mode": mode_l,
+        "judges": results,
+        "passed_count": len(passes),
+        "failed_count": len(fails),
+        "notes": f"multi-judge mode={mode_l}: {len(passes)}/{n} passed",
+    }

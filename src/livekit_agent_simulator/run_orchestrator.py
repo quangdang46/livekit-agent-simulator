@@ -380,15 +380,25 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
                 for oc in scenario.asserts.outcomes:
                     if oc.type == "llm_bool" and oc.prompt:
                         criteria.append(f"[outcome:{oc.id}] {oc.prompt}")
-            from .gemini.judge import judge_run, judge_goals
+            from .gemini.judge import judge_run, judge_run_multi, judge_goals
 
-            verdict = await judge_run(
-                cfg.judge,
-                cfg.simulator.google_api_key,
-                criteria,
-                writer.turn_metrics(),
-                tool_events,
-            )
+            if getattr(scenario, "pass_judges", None):
+                verdict = await judge_run_multi(
+                    cfg.judge,
+                    cfg.simulator.google_api_key,
+                    scenario.pass_judges,
+                    getattr(scenario, "pass_criteria_mode", None) or "all",
+                    writer.turn_metrics(),
+                    tool_events,
+                )
+            else:
+                verdict = await judge_run(
+                    cfg.judge,
+                    cfg.simulator.google_api_key,
+                    criteria,
+                    writer.turn_metrics(),
+                    tool_events,
+                )
             writer.emit("judge.verdict", spec=verdict or {}, include_dialogue=False)
         except Exception as e:
             verdict = {"verdict": "error", "notes": f"{type(e).__name__}: {e}"}

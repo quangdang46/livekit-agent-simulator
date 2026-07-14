@@ -143,6 +143,9 @@ class Scenario:
     caller: CallerSpec | None = None
     telephony: TelephonySpec | None = None
     pass_criteria: list[str] = field(default_factory=list)
+    # Multi-judge: list of {id, criteria[]} groups; mode all|majority|any
+    pass_judges: list[dict[str, Any]] = field(default_factory=list)
+    pass_criteria_mode: str = "all"  # all | majority | any (how judge groups aggregate)
     script_steps: list[Any] = field(default_factory=list)
     script_verify: ScriptVerifySpec | None = None
     plugin_modules: list[str] = field(default_factory=list)
@@ -205,6 +208,8 @@ class Scenario:
                 "first_speaker": self.run_spec.first_speaker,
             },
             "pass_criteria": self.pass_criteria,
+            "pass_judges": self.pass_judges,
+            "pass_criteria_mode": self.pass_criteria_mode,
             "script_steps": len(self.script_steps),
             "plugin_modules": list(self.plugin_modules),
             "has_asserts": self.asserts is not None and not self.asserts.empty,
@@ -452,7 +457,40 @@ def parse_scenario(path: Path | str) -> Scenario:
                 handset_isolation=handset_iso,
             )
         elif kind == "PassCriteria":
-            scenario.pass_criteria = [str(c) for c in spec.get("criteria", [])]
+            scenario.pass_criteria = [str(c) for c in (spec.get("criteria") or [])]
+            mode = str(spec.get("mode") or "all").strip().lower()
+            if mode not in ("all", "majority", "any"):
+                raise ScenarioError(
+                    f"{path}:{line_no}: PassCriteria.spec.mode must be all|majority|any"
+                )
+            scenario.pass_criteria_mode = mode
+            judges_raw = spec.get("judges") or []
+            if judges_raw and not isinstance(judges_raw, list):
+                raise ScenarioError(
+                    f"{path}:{line_no}: PassCriteria.spec.judges must be an array"
+                )
+            judges: list[dict[str, Any]] = []
+            for ji, j in enumerate(judges_raw):
+                if not isinstance(j, dict):
+                    raise ScenarioError(
+                        f"{path}:{line_no}: PassCriteria.spec.judges[{ji}] must be object"
+                    )
+                jid = str(j.get("id") or j.get("name") or f"judge-{ji}")
+                jc = j.get("criteria") or []
+                if isinstance(jc, str):
+                    jc = [jc]
+                if not isinstance(jc, list) or not jc:
+                    raise ScenarioError(
+                        f"{path}:{line_no}: PassCriteria.judges[{ji}] needs non-empty criteria[]"
+                    )
+                judges.append({"id": jid, "criteria": [str(c) for c in jc]})
+            scenario.pass_judges = judges
+            # Backward compatible: flat criteria still used when no judges
+            if judges and not scenario.pass_criteria:
+                # Flatten for list_scenarios / export that only show count
+                scenario.pass_criteria = [
+                    f"[{j['id']}] {c}" for j in judges for c in j["criteria"]
+                ]
         elif kind == "Script":
             from .script_parse import parse_script_steps, parse_script_verify
 
