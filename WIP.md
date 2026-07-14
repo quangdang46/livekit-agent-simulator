@@ -336,6 +336,33 @@ See `docs/PROBLEM.md`, `docs/telephony.md`. Work: **P1.E**.
 
 ---
 
+## PR / merge process (mandatory — 2026-07-14)
+
+**One gap / feature = one PR into `main`.** No multi-feature dumps.
+
+### Merge-ready only when ALL hold
+
+| Gate | Required |
+|---|---|
+| Unit tests | `uv run pytest -q` green (or scoped + full before merge) |
+| Build | package importable; web build if `web/` touched |
+| Real execute | `lk-sim execute <scenario> --root <any-target>` with **real** `reports/<run-id>/` matching expected gate — **except** pure tests/docs (no runtime surface) |
+| Portable core | AGENTS.md: no hardcoding of worker/dashboard/product in `src/`; target is black-box smoke only |
+
+### Forbidden
+- Fitting core to voice-ai-worker or any one monorepo
+- Merging DTMF/runtime without honest E2E (fake green)
+- Multiple beads in one PR
+- Direct multi-feature commits to main without PR review trail
+
+### Draft PRs
+OK when E2E cannot be honest yet; must state missing proof; do not merge until real report exists.
+
+### Branch
+`feat/<id>-slug` or `fix/<id>-slug` from latest `main`.
+
+---
+
 ## Design locks (do not regress)
 
 1. **Black-box agent** — never import or patch target application code.
