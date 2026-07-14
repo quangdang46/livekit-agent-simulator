@@ -582,6 +582,7 @@ async def compare_runs(project_root: Path | str, run_id_a: str, run_id_b: str) -
 
         s = r["summary"]
         md = metrics_digest(s.get("metrics") if isinstance(s.get("metrics"), dict) else None)
+        av = s.get("assert_verify") if isinstance(s.get("assert_verify"), dict) else {}
         return {
             "run_id": r["run_id"],
             "status": s.get("status"),
@@ -599,6 +600,7 @@ async def compare_runs(project_root: Path | str, run_id_a: str, run_id_b: str) -
             "barge_recovery_rate": md.get("barge_recovery_rate"),
             "talk_ratio": md.get("talk_ratio"),
             "verdict": (s.get("verdict") or {}).get("verdict"),
+            "assert_pass": av.get("pass"),
         }
 
     da, db = digest(a), digest(b)
@@ -607,7 +609,120 @@ async def compare_runs(project_root: Path | str, run_id_a: str, run_id_b: str) -
         for k in da
         if k != "run_id" and da[k] != db[k]
     }
-    return {"a": da, "b": db, "deltas": deltas}
+    out: dict[str, Any] = {"a": da, "b": db, "deltas": deltas}
+    return out
+
+
+def _as_float(v: Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def evaluate_baseline_gate(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    max_ttfw_regression_ms: float = 1500.0,
+    max_turn_p95_regression_ms: float = 2000.0,
+    max_duration_regression_ms: float = 30000.0,
+    require_status_done: bool = True,
+) -> dict[str, Any]:
+    """Hard gate: candidate must not regress vs baseline digest (portable thresholds)."""
+    reasons: list[str] = []
+    checks: list[dict[str, Any]] = []
+
+    if require_status_done:
+        st = str(candidate.get("status") or "")
+        ok = st in ("done", "pass", "passed")
+        checks.append({"check": "status_done", "pass": ok, "actual": st})
+        if not ok:
+            reasons.append(f"candidate status={st!r} not done")
+
+    ap = candidate.get("assert_pass")
+    if ap is False:
+        checks.append({"check": "assert_pass", "pass": False})
+        reasons.append("candidate assert_verify failed")
+    elif ap is True:
+        checks.append({"check": "assert_pass", "pass": True})
+
+    def reg(key: str, limit: float) -> None:
+        b, c = _as_float(baseline.get(key)), _as_float(candidate.get(key))
+        if b is None or c is None:
+            checks.append(
+                {
+                    "check": f"regression:{key}",
+                    "pass": True,
+                    "skipped": True,
+                    "baseline": b,
+                    "candidate": c,
+                }
+            )
+            return
+        delta = c - b
+        ok = delta <= limit
+        checks.append(
+            {
+                "check": f"regression:{key}",
+                "pass": ok,
+                "baseline": b,
+                "candidate": c,
+                "delta": delta,
+                "max_delta": limit,
+            }
+        )
+        if not ok:
+            reasons.append(
+                f"{key} +{delta:.0f}ms over baseline (limit +{limit:.0f}ms): "
+                f"{b:.0f} → {c:.0f}"
+            )
+
+    reg("ttfw_ms", max_ttfw_regression_ms)
+    reg("turn_taking_p95", max_turn_p95_regression_ms)
+    reg("duration_ms", max_duration_regression_ms)
+
+    bt, ct = _as_float(baseline.get("tool_errors")), _as_float(candidate.get("tool_errors"))
+    if bt is not None and ct is not None:
+        ok = ct <= bt
+        checks.append(
+            {"check": "tool_errors_not_up", "pass": ok, "baseline": bt, "candidate": ct}
+        )
+        if not ok:
+            reasons.append(f"tool_errors rose {bt:.0f} → {ct:.0f}")
+
+    ok = not reasons
+    return {"ok": ok, "pass": ok, "checks": checks, "reasons": reasons}
+
+
+async def compare_runs_with_baseline(
+    project_root: Path | str,
+    baseline_run_id: str,
+    candidate_run_id: str,
+    *,
+    max_ttfw_regression_ms: float = 1500.0,
+    max_turn_p95_regression_ms: float = 2000.0,
+    max_duration_regression_ms: float = 30000.0,
+) -> dict[str, Any]:
+    """Compare candidate to golden baseline; attach hard ``gate`` for CI exit codes."""
+    raw = await compare_runs(project_root, baseline_run_id, candidate_run_id)
+    if raw.get("error"):
+        return {**raw, "gate": {"ok": False, "pass": False, "reasons": [raw["error"]]}}
+    gate = evaluate_baseline_gate(
+        raw["a"],
+        raw["b"],
+        max_ttfw_regression_ms=max_ttfw_regression_ms,
+        max_turn_p95_regression_ms=max_turn_p95_regression_ms,
+        max_duration_regression_ms=max_duration_regression_ms,
+    )
+    return {
+        **raw,
+        "baseline_run_id": baseline_run_id,
+        "candidate_run_id": candidate_run_id,
+        "gate": gate,
+    }
 
 
 async def list_runs(

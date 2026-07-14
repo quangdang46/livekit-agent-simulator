@@ -365,8 +365,42 @@ def report(run_id: str, root: Optional[Path] = ROOT_OPTION) -> None:
 
 
 @app.command()
-def compare(run_id_a: str, run_id_b: str, root: Optional[Path] = ROOT_OPTION) -> None:
-    """Diff two runs. (MCP: compare_runs)"""
+def compare(
+    run_id_a: str = typer.Argument(..., help="Baseline run id when --baseline, else run A"),
+    run_id_b: str = typer.Argument(..., help="Candidate run id when --baseline, else run B"),
+    baseline: bool = typer.Option(
+        False,
+        "--baseline",
+        help="Treat run_id_a as golden baseline; attach hard regression gate (CI exit 1 if fail)",
+    ),
+    max_ttfw_regression_ms: float = typer.Option(
+        1500.0, "--max-ttfw-regression-ms", help="Max allowed TTFW increase vs baseline"
+    ),
+    max_turn_p95_regression_ms: float = typer.Option(
+        2000.0, "--max-turn-p95-regression-ms", help="Max allowed turn p95 increase vs baseline"
+    ),
+    max_duration_regression_ms: float = typer.Option(
+        30000.0, "--max-duration-regression-ms", help="Max allowed duration increase vs baseline"
+    ),
+    root: Optional[Path] = ROOT_OPTION,
+) -> None:
+    """Diff two runs. With --baseline, hard-fail on latency/assert regression. (MCP: compare_runs)"""
+    if baseline:
+        result = _run(
+            ops.compare_runs_with_baseline(
+                _root(root),
+                run_id_a,
+                run_id_b,
+                max_ttfw_regression_ms=max_ttfw_regression_ms,
+                max_turn_p95_regression_ms=max_turn_p95_regression_ms,
+                max_duration_regression_ms=max_duration_regression_ms,
+            )
+        )
+        _print(result)
+        gate = result.get("gate") if isinstance(result, dict) else None
+        if isinstance(gate, dict) and not gate.get("ok", True):
+            raise typer.Exit(code=1)
+        return
     _print(_run(ops.compare_runs(_root(root), run_id_a, run_id_b)))
 
 
