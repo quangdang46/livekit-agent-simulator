@@ -1192,19 +1192,6 @@ audio {
     0 10px 28px color-mix(in srgb, #000 8%, transparent);
 }
 
-.run-card-featured::before {
-  content: "";
-  display: block;
-  height: 3px;
-  margin: -1.1rem -1.15rem 0.85rem;
-  border-radius: 12px 12px 0 0;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--user) 80%, #fff),
-    color-mix(in srgb, var(--agent) 70%, #fff)
-  );
-}
-
 .run-card-top {
   grid-area: top;
   display: flex;
