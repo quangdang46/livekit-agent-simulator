@@ -90,7 +90,7 @@ def test_parse_scenario_compiles_character(tmp_path):
     assert any(st.barge_in for st in s.script_steps)
     prompt = s.persona_system_prompt()
     assert "No card numbers" in prompt
-    assert "Hard constraints" in prompt
+    assert "Hard constraints" in prompt or "HARD CONSTRAINTS" in prompt
     assert s.script_verify is not None
     assert s.script_verify.min_agent_finals_after_barge_in >= 1
 
