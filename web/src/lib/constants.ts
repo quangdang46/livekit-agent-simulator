@@ -7,12 +7,18 @@ export const MARKER_LABELS: Record<string, string> = {
   silence: "Silence detected",
   interruption: "Interruption",
   recovery: "Agent recovery",
+  backchannel: "Backchannel",
+  false_interrupt: "False interrupt",
+  dtmf: "DTMF",
   tool: "Tool call",
   tool_error: "Tool error",
 };
 
 export const LEGEND_ORDER: MarkerType[] = [
   "barge_in",
+  "backchannel",
+  "false_interrupt",
+  "dtmf",
   "silence_wait",
   "silence",
   "interruption",

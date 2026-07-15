@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from .report_time import (
+    MARKER_BACKCHANNEL,
     MARKER_BARGE_IN,
+    MARKER_DTMF,
+    MARKER_FALSE_INTERRUPT,
     MARKER_INTERRUPTION,
     MARKER_RECOVERY,
     MARKER_SCRIPT_CUE,
@@ -117,11 +120,11 @@ def _build_markers(
             mtype = MARKER_BARGE_IN if barge else MARKER_SCRIPT_CUE
             # Non-recovery classes get distinct marker types for UI chips
             if icls == "backchannel":
-                mtype = "backchannel"
+                mtype = MARKER_BACKCHANNEL
             elif icls == "noise":
-                mtype = "false_interrupt"
+                mtype = MARKER_FALSE_INTERRUPT
             elif icls == "dtmf":
-                mtype = "dtmf"
+                mtype = MARKER_DTMF
             detail_parts = [
                 f"trigger={spec.get('trigger') or '?'}",
                 f"during_agent={during}",

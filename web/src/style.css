@@ -25,6 +25,9 @@
   --mk-silence: #f59e0b;
   --mk-interrupt: #fb923c;
   --mk-recovery: #34d399;
+  --mk-backchannel: #67e8f9;
+  --mk-false-interrupt: #94a3b8;
+  --mk-dtmf: #60a5fa;
   --mk-tool: #8b5cf6;
   --mk-tool-error: #f87171;
   font-family:
@@ -62,6 +65,9 @@
     --mk-silence: #f59e0b;
     --mk-interrupt: #ea580c;
     --mk-recovery: #059669;
+    --mk-backchannel: #0891b2;
+    --mk-false-interrupt: #64748b;
+    --mk-dtmf: #2563eb;
     --mk-tool: #7c3aed;
     --mk-tool-error: #dc2626;
   }
@@ -272,6 +278,15 @@ audio {
 .timeline-band.barge_in {
   background: var(--mk-barge);
 }
+.timeline-band.backchannel {
+  background: var(--mk-backchannel);
+}
+.timeline-band.false_interrupt {
+  background: var(--mk-false-interrupt);
+}
+.timeline-band.dtmf {
+  background: var(--mk-dtmf);
+}
 .timeline-band.script_cue {
   background: var(--mk-script);
 }
@@ -330,6 +345,15 @@ audio {
 
 .swatch.barge_in {
   background: var(--mk-barge);
+}
+.swatch.backchannel {
+  background: var(--mk-backchannel);
+}
+.swatch.false_interrupt {
+  background: var(--mk-false-interrupt);
+}
+.swatch.dtmf {
+  background: var(--mk-dtmf);
 }
 .swatch.script_cue {
   background: var(--mk-script);
@@ -739,6 +763,18 @@ audio {
   border-color: var(--mk-barge);
   background: color-mix(in srgb, var(--mk-barge) 12%, var(--panel));
 }
+.cue-card.marker.backchannel {
+  border-color: var(--mk-backchannel);
+  background: color-mix(in srgb, var(--mk-backchannel) 12%, var(--panel));
+}
+.cue-card.marker.false_interrupt {
+  border-color: var(--mk-false-interrupt);
+  background: color-mix(in srgb, var(--mk-false-interrupt) 14%, var(--panel));
+}
+.cue-card.marker.dtmf {
+  border-color: var(--mk-dtmf);
+  background: color-mix(in srgb, var(--mk-dtmf) 12%, var(--panel));
+}
 .cue-card.marker.script_cue {
   border-color: var(--mk-script);
   background: color-mix(in srgb, var(--mk-script) 12%, var(--panel));
@@ -963,6 +999,15 @@ audio {
 .role.marker-type.barge_in {
   color: var(--mk-barge);
 }
+.role.marker-type.backchannel {
+  color: var(--mk-backchannel);
+}
+.role.marker-type.false_interrupt {
+  color: var(--mk-false-interrupt);
+}
+.role.marker-type.dtmf {
+  color: var(--mk-dtmf);
+}
 .role.marker-type.script_cue {
   color: var(--mk-script);
 }
@@ -999,6 +1044,18 @@ audio {
 .tag.barge_in {
   color: var(--mk-barge);
   border-color: color-mix(in srgb, var(--mk-barge) 50%, var(--border));
+}
+.tag.backchannel {
+  color: var(--mk-backchannel);
+  border-color: color-mix(in srgb, var(--mk-backchannel) 50%, var(--border));
+}
+.tag.false_interrupt {
+  color: var(--mk-false-interrupt);
+  border-color: color-mix(in srgb, var(--mk-false-interrupt) 50%, var(--border));
+}
+.tag.dtmf {
+  color: var(--mk-dtmf);
+  border-color: color-mix(in srgb, var(--mk-dtmf) 50%, var(--border));
 }
 .tag.script_cue {
   color: var(--mk-script);

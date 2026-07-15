@@ -16,7 +16,10 @@ from typing import Any
 
 from .markers import _build_markers
 from .report_time import (
+    MARKER_BACKCHANNEL,
     MARKER_BARGE_IN,
+    MARKER_DTMF,
+    MARKER_FALSE_INTERRUPT,
     MARKER_INTERRUPTION,
     MARKER_RECOVERY,
     MARKER_SCRIPT_CUE,
@@ -41,6 +44,9 @@ from .transcript_cues import _build_transcript_cues
 # Re-export marker constants for any external importers.
 __all__ = [
     "MARKER_BARGE_IN",
+    "MARKER_BACKCHANNEL",
+    "MARKER_FALSE_INTERRUPT",
+    "MARKER_DTMF",
     "MARKER_SCRIPT_CUE",
     "MARKER_SILENCE_WAIT",
     "MARKER_SILENCE",

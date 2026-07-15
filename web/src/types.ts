@@ -17,6 +17,9 @@ export type MarkerType =
   | "silence"
   | "interruption"
   | "recovery"
+  | "backchannel"
+  | "false_interrupt"
+  | "dtmf"
   | "tool"
   | "tool_error"
   | string;
@@ -51,6 +54,7 @@ export type Marker = {
   say?: string;
   during_agent_speech?: boolean;
   barge_in?: boolean;
+  class?: string | null;
   duration_ms?: number;
   after_barge_ms?: number;
   tool_name?: string;
