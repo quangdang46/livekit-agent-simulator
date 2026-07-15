@@ -45,7 +45,7 @@ class DefaultCallerPolicy:
             )
         goals = ctx.goals()
         if goals:
-            # Soft re-ground available for future hooks (bridge may inject on timer/events).
+            # Reserved for future on-demand inject_reground() — not auto-emitted at connect.
             g0 = goals[0][:120]
             cues.append(
                 MidcallCue(

@@ -17,7 +17,7 @@ Industry (Hamming, Coval) and Google Live SI best practices: **persona → order
 ```text
 CallerPolicy (Protocol)
   ├─ build_system_instruction(ctx) -> str     # Strategy: prompt composition
-  └─ midcall_cues(ctx) -> list[MidcallCue]    # Strategy: re-ground / bootstrap texts
+  └─ midcall_cues(ctx) -> list[MidcallCue]    # Strategy: bootstrap (+ reserved reground)
 
 DefaultCallerPolicy
   sections via PromptSection builders (Composite):
@@ -28,6 +28,8 @@ DefaultCallerPolicy
 GeminiCallerBridge
   - owns Live session I/O only
   - receives instruction string + optional mid-call text injects
+  - emits bootstrap when first_speaker=user at connect
+  - inject_reground() exists but is **not auto-triggered** yet (reserved API)
   - does not know product/business keys
 ```
 
@@ -37,8 +39,10 @@ GeminiCallerBridge
 
 1. Short fixed Script `say` for critical refuses (not traits alone)
 2. Hard asserts (`constraint_respected`, `goals_met`, `ended_by`, recovery)
-3. Mid-call re-ground text when free dialog drifts (optional policy)
-4. `pass@k` for stochastic soft goals
+3. System instruction order + hard constraints (if→then) in the SI
+4. Bootstrap text for `first_speaker=user`; agent-first uses `caller_nudge` after greeting
+5. Mid-call re-ground inject — **reserved** (`inject_reground`); not a live control loop yet
+6. `pass@k` for stochastic soft goals
 
 ## Non-goals
 
