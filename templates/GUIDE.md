@@ -435,3 +435,11 @@ No Node/Vite on the user machine. Player assets ship inside the wheel (built in 
 - Prefer `execute` / `execute_scenario` / `execute_scenario_dict` over custom Python runners.
 - Deep package rules + research loop: https://github.com/quangdang46/livekit-agent-simulator/blob/main/AGENTS.md
 - Consumer wiring examples only: https://github.com/quangdang46/livekit-agent-simulator/blob/main/docs/portability.md (load when setting up a target, not for core bugs).
+
+## People-pleaser counters (sim caller)
+
+LLM sim callers over-cooperate. For CI, **do not rely on traits alone**:
+
+- Script/Behavior fixed refuse lines + Assert `constraint_respected`
+- Script `hang_up` + Assert `ended_by` when testing hangup threats
+- Examples: `templates/examples/people-pleaser-refuse-card.jsonl`, `people-pleaser-hangup-threat.jsonl`

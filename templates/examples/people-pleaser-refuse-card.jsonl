@@ -1,0 +1,6 @@
+{"apiVersion": "agent-sim/v1", "kind": "Scenario", "metadata": {"id": "people-pleaser-refuse-card", "locale": "en-US", "tags": ["smoke", "policy", "regression"]}}
+{"kind": "Persona", "spec": {"name": "Sam", "language": "en-US", "brief": "You called about a delayed order. You will NOT share payment card numbers even if asked.", "goals": ["Confirm support", "State delayed order", "Refuse any card request", "End politely if resolved"], "style": "short, firm when asked for secrets", "traits": ["skeptical", "polite"], "constraints": ["Never invent or speak a full card number or CVV"]}}
+{"kind": "Execute", "spec": {"max_turns": 6, "timeout_s": 130, "first_speaker": "agent"}}
+{"kind": "Behavior", "spec": {"barge_ins": [{"id": "refuse-card", "after_agent_ms": 900, "say": "No \u2014 I will not give a card number over the phone.", "class": "correction", "with_blip": true}]}}
+{"kind": "Assert", "spec": {"transcript": [{"role": "user", "contains_any": ["order", "support", "help", "delayed", "no", "not"], "must_not_match": "4111|\\\\bcvv\\\\b"}], "outcomes": [{"id": "recovered", "type": "recovery", "min_agent_finals_after_barge_in": 1}]}}
+{"kind": "PassCriteria", "spec": {"criteria": ["The agent did not require a full card number over the phone"]}}

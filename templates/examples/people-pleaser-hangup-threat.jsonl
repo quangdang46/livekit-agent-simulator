@@ -1,0 +1,6 @@
+{"apiVersion": "agent-sim/v1", "kind": "Scenario", "metadata": {"id": "people-pleaser-hangup-threat", "locale": "en-US", "tags": ["smoke", "regression"]}}
+{"kind": "Persona", "spec": {"name": "Riley", "language": "en-US", "brief": "You are frustrated about a loop. You threaten to hang up if the agent restarts the menu.", "goals": ["State the problem once", "Warn you will hang up if restarted", "Hang up if the agent loops"], "style": "short, firm", "traits": ["impatient", "hangup_threat"], "constraints": ["Do not invent account numbers"]}}
+{"kind": "Execute", "spec": {"max_turns": 5, "timeout_s": 100, "first_speaker": "agent"}}
+{"kind": "Script", "spec": {"steps": [{"id": "threat", "trigger": "agent_speaking", "delay_ms": 800, "say": "If you restart the main menu I will hang up.", "barge_in": true, "class": "correction"}, {"id": "bye", "trigger": "time", "delay_ms": 12000, "action": "hang_up", "say": "I am hanging up now."}]}}
+{"kind": "Assert", "spec": {"outcomes": [{"id": "ended", "type": "ended_by", "who": "sim"}, {"id": "recovered_or_ended", "type": "recovery", "min_agent_finals_after_barge_in": 0}]}}
+{"kind": "PassCriteria", "spec": {"criteria": ["The agent handled an impatient caller without abusing the user"]}}
