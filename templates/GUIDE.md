@@ -443,3 +443,16 @@ LLM sim callers over-cooperate. For CI, **do not rely on traits alone**:
 - Script/Behavior fixed refuse lines + Assert `constraint_respected`
 - Script `hang_up` + Assert `ended_by` when testing hangup threats
 - Examples: `templates/examples/people-pleaser-refuse-card.jsonl`, `people-pleaser-hangup-threat.jsonl`
+
+## Suggested suite mix (Cekura-style)
+
+For a regression suite under `.agent-sim/scenarios/`:
+
+| Share | Profile | Examples |
+|---|---|---|
+| ~60% | Standard / polite / clean | `smoke-hello`, happy-path goals |
+| ~20% | Interrupt + noise | barge recovery, `interruption_rate`, ambient noise |
+| ~10% | Non-native / confused / slow | traits `non_native`, `confused`, `amd-slow-pickup` |
+| ~10% | Edge | people-pleaser refuse/hangup, silent caller, draft telephony |
+
+Tag scenarios (`smoke`, `regression`, `draft`, `policy`) and gate CI on a small **blocking** subset first.
