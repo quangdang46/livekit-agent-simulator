@@ -21,6 +21,7 @@ def test_parse_valid(tmp_path):
     assert "Tanaka" in prompt
     assert "ja-JP" in prompt
     assert "[END_CALL]" in prompt
+    assert 'NEVER pronounce the English words "end call"' in prompt
 
 
 def test_execute_overrides_simulator(tmp_path):

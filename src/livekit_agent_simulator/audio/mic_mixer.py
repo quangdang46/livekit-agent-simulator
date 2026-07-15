@@ -142,6 +142,11 @@ class ParallelMicMixer:
             self._speech.extend(samples)
             self._speech_samples_in += len(samples)
 
+    def clear_speech(self) -> None:
+        """Drop queued speech (e.g. mute hang-up token audio mid-turn)."""
+        with self._lock:
+            del self._speech[:]
+
     def push_noise(self, pcm: bytes, *, gain: float = 1.0) -> None:
         """Start a noise layer that plays in parallel with speech (does not block speech)."""
         samples = _pcm_to_samples(pcm)
@@ -164,6 +169,17 @@ class ParallelMicMixer:
         with self._lock:
             n = len(self._speech)
         return int(n * 1000 / self.sample_rate)
+
+    async def wait_speech_drain(self, *, timeout_s: float | None = 3.0) -> None:
+        """Wait until queued speech finishes (so hang-up does not clip the last phrase)."""
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout_s is None else loop.time() + timeout_s
+        while not self._stop.is_set():
+            if self.speech_queued_ms() == 0:
+                return
+            if deadline is not None and loop.time() >= deadline:
+                return
+            await asyncio.sleep(self.frame_ms / 1000.0)
 
     async def wait_noise_drain(self, *, timeout_s: float | None = None) -> None:
         """Optional: wait until active noise layers finish (speech may continue)."""

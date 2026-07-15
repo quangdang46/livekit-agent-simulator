@@ -1,6 +1,8 @@
 import array
 import struct
 
+import pytest
+
 from livekit_agent_simulator.audio.mic_mixer import (
     mix_pcm16_layers,
     scale_pcm16_samples,
@@ -50,6 +52,44 @@ def test_mixer_push_speech_applies_gain() -> None:
     out = array.array("h")
     out.frombytes(pcm)
     assert out[0] == 500
+
+
+def test_mixer_clear_speech_drops_queue() -> None:
+    from livekit_agent_simulator.audio.mic_mixer import ParallelMicMixer
+
+    class _FakeSrc:
+        sample_rate = 24_000
+
+        async def capture_frame(self, frame) -> None:  # noqa: ANN001
+            pass
+
+    src = _FakeSrc()
+    mixer = ParallelMicMixer(src, sample_rate=24_000, frame_ms=10)  # type: ignore[arg-type]
+    n = mixer.frame_samples
+    mixer.push_speech(array.array("h", [1000] * n).tobytes())
+    assert mixer.speech_queued_ms() > 0
+    mixer.clear_speech()
+    assert mixer.speech_queued_ms() == 0
+
+
+@pytest.mark.asyncio
+async def test_mixer_wait_speech_drain() -> None:
+    from livekit_agent_simulator.audio.mic_mixer import ParallelMicMixer
+
+    class _FakeSrc:
+        sample_rate = 24_000
+
+        async def capture_frame(self, frame) -> None:  # noqa: ANN001
+            pass
+
+    src = _FakeSrc()
+    mixer = ParallelMicMixer(src, sample_rate=24_000, frame_ms=10)  # type: ignore[arg-type]
+    mixer.start()
+    n = mixer.frame_samples
+    mixer.push_speech(array.array("h", [1000] * n * 3).tobytes())
+    await mixer.wait_speech_drain(timeout_s=2.0)
+    assert mixer.speech_queued_ms() == 0
+    await mixer.aclose()
 
 
 def test_mixer_pop_frame_mixes_speech_and_noise() -> None:

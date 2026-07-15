@@ -337,9 +337,17 @@ class Scenario:
         lines.append("")
         lines.append("## GUARDRAILS")
         lines.append("Your job is to pursue your goals. Only end the call when ALL goals are done.")
-        lines.append("If you say goodbye or [END_CALL] early, the test will FAIL.")
+        lines.append("If you say goodbye or emit [END_CALL] early, the test will FAIL.")
         lines.append("If the agent says something irrelevant, steer back to your goals.")
-        lines.append("When all goals are handled, say a short goodbye and end with [END_CALL].")
+        lines.append(
+            "When all goals are handled, say a short goodbye in your language only, "
+            "then append the exact harness marker [END_CALL] once and stop speaking."
+        )
+        lines.append(
+            'NEVER pronounce the English words "end call", "hang up", or "END CALL", '
+            "and do not read brackets aloud — that leaks into the room recording. "
+            "The marker is for the test harness transcript only."
+        )
         return "\n".join(lines)
 
 

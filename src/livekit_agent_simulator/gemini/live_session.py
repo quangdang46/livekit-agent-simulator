@@ -28,6 +28,11 @@ from ..audio.local_recorder import LocalConversationRecorder
 from ..audio.mic_mixer import ParallelMicMixer
 from ..audio.pcm_cue import load_wav_pcm, resolve_cue_asset
 from ..config import SimConfig
+from .end_call import (
+    END_CALL_TOKEN,
+    contains_end_call_signal,
+    strip_end_call_signal,
+)
 
 if TYPE_CHECKING:
     from ..livekit.observer import Observer
@@ -35,7 +40,8 @@ if TYPE_CHECKING:
 
 GEMINI_IN_RATE = 16_000
 GEMINI_OUT_RATE = 24_000
-END_CALL_TOKEN = "[END_CALL]"
+
+__all__ = ["END_CALL_TOKEN", "GeminiCallerBridge"]
 
 
 class GeminiCallerBridge:
@@ -74,6 +80,8 @@ class GeminiCallerBridge:
         # Linear gain for script-injected gemini_text playback (reset on turn_complete).
         self._inject_playback_gain: float = 1.0
         self._inject_turn_active: bool = False
+        # Drop persona PCM after hang-up token / spoken "end call" is detected.
+        self._mute_persona_audio = False
 
     # ------------------------------------------------------------------ setup
 
@@ -443,9 +451,11 @@ class GeminiCallerBridge:
                     if sc.output_transcription and sc.output_transcription.text:
                         if not self._persona_output_suppressed():
                             self._sim_out_text += sc.output_transcription.text
+                            if contains_end_call_signal(self._sim_out_text):
+                                self._mute_hang_up_audio()
                             self.observer.on_transcript(
                                 "user",
-                                self._sim_out_text.replace(END_CALL_TOKEN, "").strip(),
+                                strip_end_call_signal(self._sim_out_text),
                                 final=False,
                                 source="sim.gemini",
                             )
@@ -461,7 +471,12 @@ class GeminiCallerBridge:
                     if sc.model_turn:
                         for part in sc.model_turn.parts or []:
                             blob = part.inline_data
-                            if blob and blob.data and not self._persona_output_suppressed():
+                            if (
+                                blob
+                                and blob.data
+                                and not self._persona_output_suppressed()
+                                and not self._mute_persona_audio
+                            ):
                                 await self._play_pcm(blob.data)
 
                     if sc.turn_complete:
@@ -469,17 +484,22 @@ class GeminiCallerBridge:
                         self._inject_playback_gain = 1.0
                         if self._persona_output_suppressed():
                             self._sim_out_text = ""
+                            self._mute_persona_audio = False
                             continue
                         text = self._sim_out_text.strip()
                         if text:
-                            ended = END_CALL_TOKEN in text
-                            clean = text.replace(END_CALL_TOKEN, "").strip()
+                            ended = contains_end_call_signal(text)
+                            clean = strip_end_call_signal(text)
                             if clean:
                                 self.observer.on_transcript(
                                     "user", clean, final=True, source="sim.gemini"
                                 )
                             self._sim_out_text = ""
                             if ended:
+                                # Stop new hang-up chatter, but drain goodbye already queued
+                                # so the recorder / room do not lose the last spoken sentence.
+                                self._mute_persona_audio = True
+                                await self._drain_persona_speech(timeout_s=3.0)
                                 self.writer.emit(
                                     "sim.end_call_token",
                                     spec={"text": clean},
@@ -487,6 +507,9 @@ class GeminiCallerBridge:
                                 )
                                 self.end_call.set()
                                 return
+                            self._mute_persona_audio = False
+                        else:
+                            self._mute_persona_audio = False
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -498,9 +521,20 @@ class GeminiCallerBridge:
             )
             self.end_call.set()
 
+    def _mute_hang_up_audio(self) -> None:
+        """Stop queueing further hang-up chatter; keep goodbye already buffered."""
+        self._mute_persona_audio = True
+
+    async def _drain_persona_speech(self, *, timeout_s: float = 3.0) -> None:
+        if self._mixer is not None:
+            await self._mixer.wait_speech_drain(timeout_s=timeout_s)
+            return
+        # Fallback path has no queue — small settle for in-flight capture_frame.
+        await asyncio.sleep(min(0.35, timeout_s))
+
     async def _play_pcm(self, pcm: bytes) -> None:
         """Queue Gemini TTS onto the parallel mixer (mixes with active noise layers)."""
-        if not pcm:
+        if not pcm or self._mute_persona_audio:
             return
         gain = self._inject_playback_gain if self._inject_turn_active else 1.0
         if self._mixer is not None:
