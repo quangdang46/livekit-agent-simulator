@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from .farewell import default_hangup_farewell
 from .hang_up_gate import agent_left_open_turn
-from .models import ScriptStep
+from .models import ScriptStep, effective_overlay
 
 if TYPE_CHECKING:
     from ..gemini.live_session import GeminiCallerBridge
@@ -260,6 +260,7 @@ class ScriptRunner:
                     "action": step.action,
                     "barge_in": step.barge_in,
                     "class": step.interrupt_class,
+                    "overlay": effective_overlay(step),
                     "delivery": step.delivery or "gemini_text",
                     "asset": step.asset,
                     "gain": step.gain,
@@ -373,6 +374,7 @@ class ScriptRunner:
                     "action": step.action,
                     "barge_in": step.barge_in,
                     "class": step.interrupt_class,
+                    "overlay": effective_overlay(step),
                     "delivery": step.delivery if step.action != "wait" else None,
                     "asset": step.asset if step.action != "wait" else None,
                     "gain": step.gain if step.action == "speak" else None,

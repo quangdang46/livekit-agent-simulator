@@ -84,8 +84,41 @@ def collect_authoring_warnings(scenario: Any) -> list[str]:
         )
 
     brief = str(persona.get("brief") or "").strip()
-    if not brief:
-        warnings.append("Persona.brief is empty — add who is calling and why.")
+    situation = str(persona.get("situation") or "").strip()
+    if not brief and not situation:
+        warnings.append(
+            "Persona.brief and Persona.situation are empty — add who is calling and why "
+            "(dialogue mode prefers situation + outcome)."
+        )
+    elif not situation and not list(getattr(scenario, "script_steps", None) or []):
+        warnings.append(
+            "Dialogue scenario (no Script): consider Persona.situation + Persona.outcome "
+            "so the caller has a world problem and a clear done-state (Future AGI / Coval shape)."
+        )
+
+    outcome = str(persona.get("outcome") or persona.get("desired_outcome") or "").strip()
+    if situation and not outcome and not list(getattr(scenario, "script_steps", None) or []):
+        warnings.append(
+            "Persona.situation set without Persona.outcome — add what “done” looks like for PassCriteria/Judge."
+        )
+
+    # Deadlock hint: dialogue waiting on agent while agent-under-test also waits for caller.
+    first = "agent"
+    execute = getattr(scenario, "execute", None)
+    sim = getattr(scenario, "simulator", None)
+    if execute is not None and getattr(execute, "first_speaker", None):
+        first = str(execute.first_speaker)
+    elif sim is not None and getattr(sim, "first_speaker", None):
+        first = str(sim.first_speaker)
+    if (
+        first == "agent"
+        and not list(getattr(scenario, "script_steps", None) or [])
+    ):
+        warnings.append(
+            "Dialogue with first_speaker=agent and no Script: if the agent-under-test "
+            "also waits for the caller to speak first, both sides stay silent — "
+            "prefer first_speaker=user (or add a Script open cue)."
+        )
 
     tags = []
     # Scenario.tags may live on metadata; export uses s.tags if present

@@ -2,6 +2,7 @@ from livekit_agent_simulator.gemini.end_call import (
     END_CALL_TOKEN,
     contains_end_call_signal,
     contains_farewell_signal,
+    should_end_call_on_turn,
     strip_end_call_signal,
     strip_farewell_signal,
 )
@@ -39,3 +40,30 @@ def test_farewell_soft_bye_detected():
 
 def test_farewell_includes_harness_token():
     assert contains_farewell_signal(f"Thanks {END_CALL_TOKEN}")
+
+
+def test_dialogue_soft_bye_ends_call():
+    assert should_end_call_on_turn(
+        pending_script=False,
+        ended=False,
+        farewell=True,
+        scripted_farewell=False,
+    )
+
+
+def test_script_pending_defers_soft_bye():
+    assert not should_end_call_on_turn(
+        pending_script=True,
+        ended=False,
+        farewell=True,
+        scripted_farewell=False,
+    )
+
+
+def test_scripted_farewell_not_ended_by_bridge_helper():
+    assert not should_end_call_on_turn(
+        pending_script=False,
+        ended=True,
+        farewell=True,
+        scripted_farewell=True,
+    )

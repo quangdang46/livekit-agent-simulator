@@ -6,8 +6,15 @@ import {
   shortRunId,
   statusTone,
 } from "../lib/format";
+import {
+  loadHomeFilter,
+  loadHomeViewMode,
+  saveHomeFilter,
+  saveHomeViewMode,
+  type ListViewMode,
+} from "../lib/ui-prefs";
 
-type ViewMode = "recents" | "scenario";
+type ViewMode = ListViewMode;
 
 type ScenarioGroup = {
   scenarioId: string;
@@ -213,7 +220,7 @@ export function renderRunList(
 ): void {
   const sorted = sortRunsNewest(runs);
   const latest = sorted[0] ?? null;
-  let mode: ViewMode = "recents";
+  let mode: ViewMode = loadHomeViewMode("recents");
 
   root.innerHTML = `
     <main class="page home-page">
@@ -267,6 +274,7 @@ export function renderRunList(
     b.textContent = label;
     b.addEventListener("click", () => {
       mode = id;
+      saveHomeViewMode(mode);
       paint();
     });
     return b;
@@ -279,7 +287,11 @@ export function renderRunList(
   filter.className = "run-filter";
   filter.placeholder = "Filter scenario or run id…";
   filter.autocomplete = "off";
-  filter.addEventListener("input", () => paint());
+  filter.value = loadHomeFilter();
+  filter.addEventListener("input", () => {
+    saveHomeFilter(filter.value);
+    paint();
+  });
   toolbar.appendChild(filter);
 
   function filtered(): RunSummary[] {

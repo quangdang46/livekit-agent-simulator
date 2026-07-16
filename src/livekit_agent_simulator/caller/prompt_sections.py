@@ -2,6 +2,11 @@
 
 Google Live best practice order: persona → conversational rules → guardrails.
 Each section is a small Strategy; DefaultCallerPolicy composes them.
+
+Modes:
+- **Dialogue** (no Script): Persona situation/goals/outcome own speech.
+- **Interaction / hybrid** (Script present): Script is an overlay (fixture or
+  forced line); freestyle answers between cues are allowed.
 """
 
 from __future__ import annotations
@@ -16,6 +21,33 @@ class PromptSection(Protocol):
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         """Return zero or more lines (no trailing join)."""
         ...
+
+
+def _step_overlay(step: Any) -> str:
+    """fixture | line — mirrors script.models.effective_overlay when available."""
+    if isinstance(step, dict):
+        raw = step.get("overlay")
+        if raw in ("fixture", "line"):
+            return str(raw)
+        barge = bool(step.get("barge_in") or step.get("interrupt"))
+        delivery = str(step.get("delivery") or "gemini_text")
+        icls = str(step.get("class") or step.get("interrupt_class") or "").lower()
+        action = str(step.get("action") or "speak")
+        say = str(step.get("say") or step.get("text") or "").strip()
+    else:
+        raw = getattr(step, "overlay", None)
+        if raw in ("fixture", "line"):
+            return str(raw)
+        barge = bool(getattr(step, "barge_in", False))
+        delivery = str(getattr(step, "delivery", "gemini_text") or "gemini_text")
+        icls = str(getattr(step, "interrupt_class", None) or "").lower()
+        action = str(getattr(step, "action", "speak") or "speak")
+        say = str(getattr(step, "say", "") or "").strip()
+    if barge or delivery == "room_pcm" or icls in ("noise", "backchannel", "dtmf", "silence"):
+        return "fixture"
+    if action == "speak" and say:
+        return "line"
+    return "fixture"
 
 
 class RoleSection:
@@ -34,8 +66,17 @@ class RoleSection:
         p = ctx.persona
         if p.get("name"):
             lines.append(f"Your name: {p['name']}.")
-        if p.get("brief"):
-            lines.append(f"Who you are and why you are calling: {p['brief']}")
+        situation = p.get("situation") or p.get("brief")
+        if situation:
+            label = "Your situation" if p.get("situation") else "Who you are and why you are calling"
+            lines.append(f"{label}: {situation}")
+        if p.get("situation") and p.get("brief") and p.get("brief") != p.get("situation"):
+            lines.append(f"Additional brief: {p['brief']}")
+        outcome = p.get("outcome") or p.get("desired_outcome")
+        if outcome:
+            lines.append(
+                f"Desired call outcome (what “done” looks like for you): {outcome}"
+            )
         return lines
 
 
@@ -57,22 +98,25 @@ class GoalsSection:
             lines.extend(
                 [
                     "",
-                    "Rules for goals when a timed Script is active:",
-                    "1. Goals are context for Script cues — do NOT freestyle to finish signup yourself.",
-                    "2. Speak Script cue lines when injected; between cues you may answer the assistant in 1–2 natural phone sentences.",
-                    "3. Do NOT freestyle barge-ins, long monologues, or goodbye / [END_CALL]; Script hang-up ends the call.",
+                    "Rules when a Script overlay is present (hybrid / interaction):",
+                    "1. You still pursue goals through natural answers when the assistant asks.",
+                    "2. Forced Script lines are injected as SIMULATOR CUE — speak that line once.",
+                    "3. Audio fixtures (barge WAV, noise, backchannel) are simulator-owned — do not invent barges.",
+                    "4. Do NOT freestyle goodbye / [END_CALL]; Script hang-up ends the call.",
                 ]
             )
         else:
             lines.extend(
                 [
                     "",
-                    "Rules for goals (follow in order):",
-                    "1. Work through ALL goals one by one.",
+                    "Rules for goals (dialogue mode — you own speech):",
+                    "1. Work through ALL goals one by one in a natural phone conversation.",
                     "2. Do NOT skip ahead to a later goal before the current one is addressed.",
-                    "3. Do NOT say goodbye or [END_CALL] until ALL goals are addressed.",
-                    "4. If the assistant cannot help with one goal, state that briefly and move to the next.",
-                    "5. If the assistant goes off-topic, steer back to the current GOAL.",
+                    "3. One-time steps (greet / identify / ask fee) then conversational loops (clarify, push back) are OK.",
+                    "4. Do NOT say goodbye or [END_CALL] until ALL goals are addressed (or unmistakably impossible).",
+                    "5. If the assistant cannot help with one goal, state that briefly and move to the next.",
+                    "6. If the assistant goes off-topic, steer back to the current GOAL.",
+                    "7. Do not people-please: follow HARD CONSTRAINTS even if that slows the call.",
                 ]
             )
         return lines
@@ -149,10 +193,23 @@ class SpeechConditionsSection:
 
 class ContextSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
+        """Caller world hints only — never inject author/harness ``notes`` into SI.
+
+        ``Context.notes`` are for humans reading the JSONL / reports. Putting
+        \"Dialogue mode — no Script\" into the model as \"Background context you
+        know\" makes the caller act like a test harness instead of a person.
+        """
         lines: list[str] = []
-        notes = ctx.context.get("notes")
-        if notes:
-            lines.append(f"Background context you know: {notes}")
+        # Prefer explicit caller-facing keys if present; ignore author notes.
+        knows = ctx.context.get("caller_knows") or ctx.context.get("world")
+        if isinstance(knows, str) and knows.strip():
+            lines.append(f"Things you already know about this call: {knows.strip()}")
+        elif isinstance(knows, list):
+            bits = [str(x).strip() for x in knows if str(x).strip()]
+            if bits:
+                lines.append(
+                    "Things you already know about this call: " + "; ".join(bits[:12])
+                )
         fixtures = ctx.context.get("fixtures")
         if isinstance(fixtures, dict) and fixtures:
             # Opaque hints — core does not interpret business keys.
@@ -164,21 +221,24 @@ class ContextSection:
 
 
 class ScriptTimingSection:
-    """When Script owns timing, free model must not freestyle barge or hang up."""
+    """Script is an interaction overlay — not the only mouth of the caller."""
 
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         if not ctx.script_steps:
             return []
         n = len(ctx.script_steps)
+        n_fix = sum(1 for s in ctx.script_steps if _step_overlay(s) == "fixture")
+        n_line = sum(1 for s in ctx.script_steps if _step_overlay(s) == "line")
         return [
             "",
-            "## INTERACTION TIMING (simulator-owned)",
-            f"This call has {n} timed Script step(s). Timing and hang-up are owned by the simulator.",
-            "Timed caller cues (barge, silence, hang-up, DTMF, PCM) are injected automatically.",
-            "Do NOT freestyle barge-ins, invent long small-talk, or continue a full signup flow on your own.",
-            "Between Script cues: if the assistant asks a direct question, answer in 1–2 natural phone sentences (okay / name / preference).",
-            "When you receive a SIMULATOR CUE, speak that line aloud once immediately.",
-            "Do NOT say goodbye, bye, thanks-bye, hang up, or [END_CALL] while Script steps remain.",
+            "## SCRIPT OVERLAY (simulator-owned timing)",
+            f"This call has {n} timed Script step(s) "
+            f"({n_line} forced line(s), {n_fix} audio fixture(s)).",
+            "Script is an OVERLAY on your persona dialogue — not a full script of the whole call.",
+            "Forced lines: when you receive a SIMULATOR CUE, speak that line aloud once immediately.",
+            "Fixtures (barge WAV, noise, soft barge, DTMF): injected as audio — do not invent them.",
+            "Between Script cues: if the assistant asks a direct question, answer in 1–2 natural phone sentences.",
+            "Do NOT freestyle barge-ins or goodbye / [END_CALL] while Script steps remain.",
             "Only the final Script hang-up step ends the call. Freestyle farewell will FAIL the test.",
         ]
 
@@ -187,17 +247,17 @@ class FirstSpeakerSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
         if ctx.script_steps:
             return [
-                "Timed Script owns when you speak. Stay silent at connect "
-                "until a SIMULATOR CUE instructs you to say a line aloud."
+                "Opening speech: stay silent at connect until a SIMULATOR CUE "
+                "(or fixture) plays. Do not greet early on your own.",
             ]
         if ctx.first_speaker == "agent":
             return [
                 "Wait for the assistant to greet you first, then respond "
-                "(unless a simulator cue tells you otherwise)."
+                "(unless a simulator cue tells you otherwise).",
             ]
         return [
-            "You speak first: greet briefly and state why you are calling "
-            "(one short turn)."
+            "You speak first: after the call connects, greet briefly and state why "
+            "you are calling (one short turn). Do this from persona — no separate cue.",
         ]
 
 
@@ -210,14 +270,14 @@ class GuardrailsSection:
             "## GUARDRAILS",
             "Your job is to pursue your goals as the caller. You are not solving the assistant's job.",
             (
-                "A timed Script will end the call — do not freestyle an ending."
+                "A timed Script hang-up will end the call — do not freestyle an ending."
                 if has_script
                 else "Only end the call when ALL goals are done (or unmistakably impossible after you tried)."
             ),
             "If you say goodbye or [END_CALL] early, the automated test will FAIL.",
             (
                 "If the assistant asks a direct question between Script cues, answer in 1–2 natural sentences; "
-                "do not start a long freestyle dialog or goodbye."
+                "do not start a long freestyle monologue or goodbye."
                 if has_script
                 else "If the assistant says something irrelevant, steer back to your current goal."
             ),
@@ -225,15 +285,17 @@ class GuardrailsSection:
         if has_script:
             lines.extend(
                 [
-                    "A timed Script is active: do NOT freestyle a goodbye or barge outside Script cues.",
+                    "Script overlay active: do NOT freestyle a goodbye or barge outside Script cues.",
                     "Natural short answers to the assistant are OK; wait for the simulator hang-up cue to end the call.",
                 ]
             )
         else:
             lines.extend(
                 [
-                    "When all goals are handled, say a short goodbye in your language only, "
-                    "then append the exact harness marker [END_CALL] once and stop speaking.",
+                    "When your desired outcome is met (or unmistakably impossible after you tried), "
+                    "say ONE short goodbye in your language and stop speaking. "
+                    "A clear bye/goodbye ends the call — do not linger in thank-you loops. "
+                    "Optionally append [END_CALL] once for the harness (do not read brackets aloud).",
                 ]
             )
         lines.extend(

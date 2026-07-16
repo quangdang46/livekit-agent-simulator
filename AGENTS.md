@@ -48,6 +48,21 @@ wrong for core — fix the design or keep it out of `src/`.
 
 ---
 
+## Product rule: no stubborn patches (defaults first)
+
+A **normal human caller** is the default product, not a special scenario case.
+
+| Do | Do not |
+|---|---|
+| Prefer existing defaults / one clear gate (e.g. hang_up waits for agent reply) | Stack scenario delays, extra waits, persona constraints, or authoring warns to paper over a bad override |
+| If a run feels unnatural, ask: “was a default turned off?” | Treat “don’t hang up right after saying your name” as a one-off backchannel/noise carve-out |
+| Fix the **wrong override** or the **broken knob** once | Add compensating sleeps, style flags, or “human reminder” prose in every JSONL |
+| Revert stubborn patches when the user says the behavior is just normal | Leave half-fixes in `src/` after the real fix was “leave the default on” |
+
+**Smell test:** if the patch only makes sense for one scenario id or one failure screenshot, it is probably wrong. Delete it and use the default path.
+
+---
+
 ## Research before implement or fix (mandatory)
 
 Do **not** guess SDK wire formats, Gemini Live quirks, or LiveKit dispatch behavior.
@@ -132,6 +147,8 @@ Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] 
 - **Dispatch** — opaque metadata for `RoomAgentDispatch`.
 - **Script** — timed caller cues (`agent_speaking` + `delay_ms`); `delivery: room_pcm` plays WAV into sim mic; log verify via `script_verify` and optional **verify plugins** (`docs/plugins.md`).
 - **PassCriteria** — optional LLM judge rubric.
+- **Context.notes** — author-only (reports/docs); **not** injected into the caller SI.
+- **Context.caller_knows** / **world** — optional facts the persona already knows (injected).
 
 ---
 
@@ -142,6 +159,7 @@ Scenario → Persona → [Context] → [Simulator] → [Execute] → [Dispatch] 
 - Credentials only in target `.agent-sim/config.yaml` (gitignored).
 - Core stays **repo-agnostic**; consumer fit only under target `.agent-sim/` (or docs examples).
 - No legacy shims / dual config names — clean breaks are fine while pre-1.0.
+- **No stubborn patches** — defaults first; do not compensate with scenario/authoring hacks (see above).
 - **pytest must pass** before reporting done.
 
 ---

@@ -50,7 +50,7 @@ def test_dedupe_agent_final_prefers_data_topic_over_lk(tmp_path) -> None:
     agent = "こんにちは、何かお手伝いできますか？"
 
     obs.on_transcript("user", user, final=True, source="sim.gemini")
-    obs.on_transcript("agent", agent, final=True, source="voice_ai.transcript")
+    obs.on_transcript("agent", agent, final=True, source="app.transcript")
     before_turn = obs.turn
     obs.on_transcript("agent", agent, final=True, source="lk.transcription")
 
@@ -89,7 +89,7 @@ def test_late_user_echo_after_agent_reply_not_new_turn(tmp_path) -> None:
     agent1 = "はい、どうぞ"
 
     obs.on_transcript("user", user1, final=True, source="sim.gemini")
-    obs.on_transcript("agent", agent1, final=True, source="voice_ai.transcript")
+    obs.on_transcript("agent", agent1, final=True, source="app.transcript")
     turn_after_agent = obs.turn
     obs.on_transcript("user", "こん に ちは", final=True, source="lk.transcription")
 

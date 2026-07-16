@@ -66,3 +66,22 @@ def strip_farewell_signal(text: str) -> str:
     out = re.sub(r"\s+([,.!?])", r"\1", out)
     out = re.sub(r"[,\s]+$", "", out)
     return " ".join(out.split()).strip()
+
+
+def should_end_call_on_turn(
+    *,
+    pending_script: bool,
+    ended: bool,
+    farewell: bool,
+    scripted_farewell: bool,
+) -> bool:
+    """True when dialogue freestyle should tear down the room.
+
+    Soft bye alone is enough when no Script owns hang-up — Gemini often says
+    \"Bye\" without emitting ``[END_CALL]``. Script-pending turns defer instead.
+    """
+    if scripted_farewell:
+        return False
+    if pending_script:
+        return False
+    return bool(ended or farewell)

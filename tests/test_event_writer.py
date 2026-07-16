@@ -23,7 +23,7 @@ def test_dialogue_snapshot_lifecycle(tmp_path):
     w = make_writer(tmp_path)
     w.update_dialogue("user", "予約を確認してください", final=True, at_ms=1000)
     w.begin_turn(1)
-    e = w.emit("tool.start", spec={"name": "check_booking"}, source="voice_ai.flow")
+    e = w.emit("tool.start", spec={"name": "check_booking"}, source="app.flow")
     assert e["dialogue"]["user"]["text"] == "予約を確認してください"
     assert e["dialogue"]["agent"]["text"] is None
     assert "note" in e["dialogue"]["agent"]
@@ -57,11 +57,11 @@ def test_finalize_writes_artifacts_and_metrics(tmp_path):
     w.update_dialogue("user", "hello", final=True)
     w.begin_turn(1)
     w.emit("transcript.user.final", spec={"text": "hello"})
-    start = w.emit("tool.start", spec={"name": "check_booking", "call_id": "tc1"}, source="voice_ai.flow")
+    start = w.emit("tool.start", spec={"name": "check_booking", "call_id": "tc1"}, source="app.flow")
     w.emit(
         "tool.error",
         spec={"name": "check_booking", "call_id": "tc1", "error": "SERVICE_UNAVAILABLE", "duration_ms": 2600},
-        source="voice_ai.flow",
+        source="app.flow",
         parent_event_id=start["event_id"],
     )
     w.emit(

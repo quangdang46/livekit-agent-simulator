@@ -80,6 +80,36 @@ def _text_overlap(a: str, b: str) -> bool:
     return len(inter) >= 2
 
 
+def _mostly_script_say(text: str, say: str) -> bool:
+    """True when STT is essentially the script line (not freestyle + inject concat).
+
+    Bootstrap freestyle often precedes Script open; STT merges both into one final.
+    Those must stay ``natural``, not ``script_cue``.
+    """
+    nt, ns = _norm_speech(text), _norm_speech(say)
+    if not ns or not nt:
+        return False
+    if nt == ns:
+        return True
+    if ns in nt:
+        extras = (" " + nt + " ").replace(" " + ns + " ", " ", 1).strip()
+        if not extras:
+            return True
+        if len(extras) <= 12 and len(extras.split()) <= 2:
+            return True
+        content = [w for w in extras.split() if len(w) >= 4 and w not in _CONTENT_STOP]
+        # Substantial leftover content → freestyle mixed with cue.
+        if len(content) >= 2 or len(extras) > max(24, int(len(ns) * 0.45)):
+            return False
+        return True
+    if nt in ns and len(ns) - len(nt) <= 20:
+        return True
+    # Word-overlap only if lengths are similar (avoid tagging long freestyle).
+    if not _text_overlap(text, say):
+        return False
+    return len(nt) <= len(ns) + 24
+
+
 def _pin_script_window(
     c: dict[str, Any],
     matched: dict[str, Any],
@@ -162,7 +192,7 @@ def _tag_cues_with_markers(
             if delta < -800 or delta > 15000:
                 continue
             text_hit = (
-                _text_overlap(text, say)
+                _mostly_script_say(text, say)
                 if say and not str(say).startswith("[")
                 else False
             )

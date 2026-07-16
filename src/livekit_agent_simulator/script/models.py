@@ -95,6 +95,26 @@ class ScriptStep:
     gain: float = 1.0
     # Hamming class: correction | backchannel | noise | dtmf | silence | escalate
     interrupt_class: str | None = None
+    # Overlay role: fixture (PCM/barge/noise) | line (forced say) | None → auto
+    overlay: str | None = None
+
+
+OVERLAY_ROLES = frozenset({"fixture", "line"})
+
+
+def effective_overlay(step: ScriptStep) -> str:
+    """Classify Script step as audio fixture vs forced spoken line."""
+    if step.overlay in OVERLAY_ROLES:
+        return str(step.overlay)
+    if (
+        step.barge_in
+        or step.delivery == "room_pcm"
+        or (step.interrupt_class or "") in ("noise", "backchannel", "dtmf", "silence")
+    ):
+        return "fixture"
+    if step.action == "speak" and str(step.say or "").strip():
+        return "line"
+    return "fixture"
 
 
 @dataclass(frozen=True)

@@ -125,6 +125,18 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
         except ValueError as e:
             raise ValueError(f"{path_label}: Script step {step_id!r}: {e}") from e
 
+        overlay_raw = raw.get("overlay") or raw.get("speech_role")
+        overlay: str | None = None
+        if overlay_raw is not None and str(overlay_raw).strip():
+            overlay = str(overlay_raw).strip().lower().replace("-", "_")
+            if overlay in ("forced_line", "forced", "say"):
+                overlay = "line"
+            if overlay not in ("fixture", "line"):
+                raise ValueError(
+                    f"{path_label}: Script step {step_id!r}: overlay must be "
+                    f"fixture|line (got {overlay_raw!r})"
+                )
+
         steps.append(
             ScriptStep(
                 id=step_id,
@@ -148,6 +160,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 with_blip=with_blip,
                 gain=gain,
                 interrupt_class=interrupt_class,
+                overlay=overlay,
             )
         )
     return steps

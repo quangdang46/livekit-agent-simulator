@@ -5,15 +5,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# Built-in lk-sim / LiveKit sources only. Target data topics are ranked generically
+# below (any non-builtin source beats raw lk.transcription for user).
 _USER_SOURCE_RANK = {
     "sim.gemini": 0,
     "data": 2,
-    "voice_ai.transcript": 2,
     "lk.transcription": 3,
 }
 _AGENT_SOURCE_RANK = {
     "data": 0,
-    "voice_ai.transcript": 0,
     "lk.transcription": 1,
     "sim.gemini": 2,
 }
@@ -36,7 +36,7 @@ def source_rank(source: str | None, role: str) -> int:
     if s in table:
         return table[s]
     if s and s not in ("sim.gemini", "lk.transcription"):
-        # Custom worker topics (e.g. voice_ai.*) — prefer over raw LK STT for user.
+        # Opaque target data-topic sources (observe.data_topics) — prefer over raw LK STT.
         return 1 if role == "user" else 0
     return 9
 
@@ -62,7 +62,7 @@ def texts_similar(a: str, b: str) -> bool:
     """True when two transcripts likely describe the same spoken utterance.
 
     Tolerates ASR typos (Okey/Okay, Thank's/Thanks) and punctuation drift so
-    dual pipelines (lk.transcription + worker topic) collapse in the player.
+    dual pipelines (lk.transcription + target data topic) collapse in the player.
     """
     a_n = _normalize_for_similarity(a)
     b_n = _normalize_for_similarity(b)

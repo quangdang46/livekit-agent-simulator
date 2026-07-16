@@ -90,4 +90,4 @@ def test_parse_script_section(tmp_path):
     assert s.script_steps[0].say == "うん"
     assert s.script_verify is not None
     assert s.script_verify.min_agent_finals_after_first_cue == 1
-    assert "Timed caller cues" in s.persona_system_prompt()
+    assert "SCRIPT OVERLAY" in s.persona_system_prompt() or "SIMULATOR CUE" in s.persona_system_prompt()

@@ -1,4 +1,9 @@
-"""DefaultCallerPolicy — Composite of PromptSections + mid-call bootstrap cues."""
+"""DefaultCallerPolicy — Composite of PromptSections + on-demand midcall cues.
+
+Bootstrap speak-inducing ``send_realtime_input`` text is intentionally omitted:
+Gemini Live treats mid-session text as a user turn (double-open with Script).
+First-speaker / silence rules live in system instruction only.
+"""
 
 from __future__ import annotations
 
@@ -27,35 +32,27 @@ class DefaultCallerPolicy:
         return "\n".join(lines)
 
     def midcall_cues(self, ctx: CallerPolicyContext) -> list[MidcallCue]:
-        """Bootstrap / re-ground texts (Live send_realtime_input text).
+        """Optional connect kicks + on-demand reground texts.
 
-        Interaction PCM/barge remains ScriptRunner — these are dialog steering only.
+        **No** bootstrap when Script owns opening (realtime text would freestyle
+        before the open cue → double-open). Dialogue ``first_speaker=user``
+        without Script still needs a speak-first kick: Gemini Live waits for
+        user input before audio; SI alone often stays silent.
         """
         cues: list[MidcallCue] = []
-        if ctx.first_speaker == "user":
-            if ctx.script_steps:
-                # Script owns the first spoken line — freestyle "speak first" races the
-                # open cue and can leave Gemini in a silent / abortive turn (no mic audio).
-                boot_text = (
-                    "(The call just connected. A timed Script owns your speech. "
-                    "Stay completely silent until you receive a SIMULATOR CUE, "
-                    "then speak that cue line aloud once as the phone caller.)"
-                )
-            else:
-                boot_text = (
-                    "(The call just connected. You speak first per PERSONA: "
-                    "greet briefly and state why you are calling in one short turn.)"
-                )
+        if ctx.first_speaker == "user" and not ctx.script_steps:
             cues.append(
                 MidcallCue(
-                    text=boot_text,
+                    text=(
+                        "(The call just connected. You speak first per PERSONA: "
+                        "greet briefly and state why you are calling in one short turn.)"
+                    ),
                     kind="bootstrap",
                     label="first_speaker_user",
                 )
             )
         goals = ctx.goals()
         if goals:
-            # Reserved for future on-demand inject_reground() — not auto-emitted at connect.
             g0 = goals[0][:120]
             cues.append(
                 MidcallCue(
@@ -71,7 +68,7 @@ class DefaultCallerPolicy:
             cues.append(
                 MidcallCue(
                     text=(
-                        "(Timed Script is active. Do not say bye / goodbye / [END_CALL]. "
+                        "(Timed Script overlay is active. Do not say bye / goodbye / [END_CALL]. "
                         "Between cues, answer questions in 1–2 natural sentences; "
                         "the simulator will hang up.)"
                     ),

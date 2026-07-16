@@ -33,6 +33,7 @@ from .end_call import (
     END_CALL_TOKEN,
     contains_end_call_signal,
     contains_farewell_signal,
+    should_end_call_on_turn,
     strip_end_call_signal,
     strip_farewell_signal,
 )
@@ -203,7 +204,7 @@ class GeminiCallerBridge:
 
         Outbound hairpin often never places a SIP track in sim-room (same DID as
         agent inbound). Gemini still needs agent PCM to continue the conversation —
-        feed it from agent-room where the worker publishes WebRTC audio.
+        feed it from agent-room where the LiveKit agent publishes WebRTC audio.
         """
 
         def _maybe_queue(p: rtc.RemoteParticipant, track: rtc.Track) -> None:
@@ -311,7 +312,11 @@ class GeminiCallerBridge:
 
 
     async def _emit_bootstrap_cues(self, session: Any) -> None:
-        """Send policy bootstrap texts (first speaker). Reground cues are on-demand."""
+        """Emit connect-time midcall texts (``kind=bootstrap`` only).
+
+        Default policy: speak-first kick for dialogue ``user`` without Script;
+        never bootstrap when Script owns the open line (avoids double-open).
+        """
         for cue in self._midcall_cues:
             kind = getattr(cue, "kind", "") or ""
             if kind != "bootstrap":
@@ -756,14 +761,21 @@ class GeminiCallerBridge:
                                 )
                                 self._mute_persona_audio = False
                                 continue
-                            if ended and not self._script_hangup_farewell:
-                                # Stop new hang-up chatter, but drain goodbye already queued
-                                # so the recorder / room do not lose the last spoken sentence.
+                            if should_end_call_on_turn(
+                                pending_script=pending,
+                                ended=ended,
+                                farewell=farewell,
+                                scripted_farewell=self._script_hangup_farewell,
+                            ):
+                                # Dialogue: soft bye or [END_CALL] — one goodbye ends the call.
                                 self._mute_persona_audio = True
                                 await self._drain_persona_speech(timeout_s=3.0)
                                 self.writer.emit(
                                     "sim.end_call_token",
-                                    spec={"text": clean},
+                                    spec={
+                                        "text": clean,
+                                        "reason": "end_call_token" if ended else "farewell",
+                                    },
                                     source="sim.gemini",
                                 )
                                 self.end_call.set()
