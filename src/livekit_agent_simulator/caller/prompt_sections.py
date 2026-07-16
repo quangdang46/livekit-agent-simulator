@@ -178,11 +178,17 @@ class SpeechConditionsSection:
                 f"(barge_policy={sc.get('barge_policy') or 'n/a'}, "
                 f"interruption_rate={sc.get('interruption_rate') or 'n/a'})"
             )
-        if sc.get("silence_ms") or sc.get("user_silence_ms") or sc.get("silent_mode"):
+        if sc.get("silent_mode") is True or str(sc.get("silent_mode") or "").lower() in (
+            "1", "true", "yes", "on", "silent",
+        ):
+            bits.append(
+                "SILENT MODE: you produce NO speech. Stay completely mute for the whole call. "
+                "Do not greet, answer, or freestyle. The simulator enforces silence."
+            )
+        elif sc.get("silence_ms") or sc.get("user_silence_ms"):
             bits.append(
                 "you may be forced silent by the simulator "
-                f"(silence_ms={sc.get('silence_ms') or sc.get('user_silence_ms') or 'n/a'}, "
-                f"silent_mode={sc.get('silent_mode')})"
+                f"(silence_ms={sc.get('silence_ms') or sc.get('user_silence_ms') or 'n/a'})"
             )
         if sc.get("noise") or sc.get("ambient"):
             bits.append("there may be background noise on the line")
@@ -254,6 +260,15 @@ class ScriptTimingSection:
 
 class FirstSpeakerSection:
     def render(self, ctx: CallerPolicyContext) -> list[str]:
+        sc = ctx.speech_conditions()
+        silent = sc.get("silent_mode") is True or str(sc.get("silent_mode") or "").lower() in (
+            "1", "true", "yes", "on", "silent",
+        )
+        if silent:
+            return [
+                "Silent mode: produce zero speech for the entire call. "
+                "Do not open, greet, or answer — stay mute.",
+            ]
         if ctx.script_steps:
             return [
                 "Opening speech: stay silent at connect until a SIMULATOR CUE "

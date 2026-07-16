@@ -24,6 +24,7 @@ from typing import Any
 
 from .audio.local_recorder import DEFAULT_FILENAME, LocalConversationRecorder
 from .caller_nudge import nudge_caller_after_agent_greeting
+from .behavior_compile import silent_mode_enabled
 from .config import SimConfig, config_snapshot
 from .gemini.judge import judge_run
 from .gemini.live_session import GeminiCallerBridge, resolve_voice_gain
@@ -274,6 +275,7 @@ async def run_scenario_instance(
                 first_speaker=run.first_speaker,
             )
             _midcall_cues = DefaultCallerPolicy().midcall_cues(_midcall_ctx)
+            _silent = silent_mode_enabled(scenario.persona)
             bridge = GeminiCallerBridge(
                 cfg,
                 leg_handle.sim_room,
@@ -282,9 +284,21 @@ async def run_scenario_instance(
                 persona_system_prompt=scenario.persona_system_prompt(),
                 first_speaker=run.first_speaker,
                 recorder=recorder,
-                midcall_cues=_midcall_cues,
                 voice_gain=resolve_voice_gain(scenario.persona),
+                midcall_cues=[] if _silent else _midcall_cues,
+                silent_mode=_silent,
             )
+            if _silent:
+                writer.emit(
+                    "sim.silent_mode",
+                    spec={
+                        "enabled": True,
+                        "note": "Caller stays mute: no freestyle, no nudge, no auto barge/noise",
+                    },
+                    source="sim",
+                    include_dialogue=False,
+                )
+                meta["silent_mode"] = True
             # Listen/record feed derived from SimLegHandle — no mode ifs.
             if leg_handle.gemini_listen_agent_room:
                 bridge.watch_agent_tracks_on_room(
@@ -313,13 +327,14 @@ async def run_scenario_instance(
 
             bridge_task = asyncio.create_task(bridge.run(), name="gemini-bridge")
             nudge_task: asyncio.Task | None = None
-            if run.first_speaker == "agent" and not scenario.script_steps:
+            if run.first_speaker == "agent" and not scenario.script_steps and not _silent:
                 nudge_task = asyncio.create_task(
                     nudge_caller_after_agent_greeting(
                         observer,
                         bridge,
                         writer,
                         first_speaker=run.first_speaker,
+                        silent_mode=_silent,
                     ),
                     name="agent-greeted-nudge",
                 )

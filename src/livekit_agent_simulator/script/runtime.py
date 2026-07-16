@@ -210,9 +210,14 @@ class ScriptRunner:
                     await asyncio.sleep(hold_silence_ms / 1000.0)
             elif step.action == "hang_up":
                 kind = "sim.script.hang_up"
-                # Human-caller fidelity: never silent-drop. Empty say → locale default goodbye.
+                # Silent mode: hard mute hang-up — no farewell speech (dead-air caller).
+                silent = bool(getattr(self.bridge, "_silent_mode", False))
+                # Human-caller fidelity: never silent-drop unless silent_mode.
+                # Empty say → locale default goodbye (non-silent only).
                 say_text = step.say.strip()
-                if not say_text:
+                if silent:
+                    say_text = ""
+                elif not say_text:
                     lang = None
                     cfg = getattr(self.bridge, "cfg", None)
                     sim = getattr(cfg, "simulator", None) if cfg is not None else None
@@ -224,21 +229,22 @@ class ScriptRunner:
                 # Prefer a quiet gap before farewell so we do not talk over an agent
                 # re-prompt (budget may have expired while agent was mid-sentence).
                 await self._wait_agent_idle(timeout_s=5.0)
-                if hasattr(self.bridge, "begin_script_hangup_farewell"):
+                if say_text and hasattr(self.bridge, "begin_script_hangup_farewell"):
                     self.bridge.begin_script_hangup_farewell()
                 try:
-                    try:
-                        await self.bridge.inject_cue(
-                            say_text,
-                            label=step.label or step.id,
-                            delivery=step.delivery or "gemini_text",
-                            asset=step.asset,
-                            scenario_dir=self.scenario_dir,
-                            gain=step.gain,
-                            loop=False,
-                        )
-                    except Exception as say_err:
-                        inject_error = f"{type(say_err).__name__}: {say_err}"
+                    if say_text:
+                        try:
+                            await self.bridge.inject_cue(
+                                say_text,
+                                label=step.label or step.id,
+                                delivery=step.delivery or "gemini_text",
+                                asset=step.asset,
+                                scenario_dir=self.scenario_dir,
+                                gain=step.gain,
+                                loop=False,
+                            )
+                        except Exception as say_err:
+                            inject_error = f"{type(say_err).__name__}: {say_err}"
                     # Let goodbye leave the room before disconnect (real human hang-up).
                     # Scale drain with utterance length so short farewells are not cut.
                     words = max(1, len(say_text.split()))

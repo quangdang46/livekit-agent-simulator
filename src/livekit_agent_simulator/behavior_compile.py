@@ -37,10 +37,29 @@ def speech_conditions_of(persona: dict[str, Any]) -> dict[str, Any]:
     return sc if isinstance(sc, dict) else {}
 
 
+
+def silent_mode_enabled(persona: dict[str, Any] | None) -> bool:
+    """True when Persona.speech_conditions.silent_mode is on (Coval Silent Mode).
+
+    Silent callers never freestyle-speak; auto barge/noise/silence compiles are skipped.
+    Explicit Script ``speak`` steps are dropped (wait/hang_up kept).
+    """
+    sc = speech_conditions_of(persona or {})
+    raw = sc.get("silent_mode", sc.get("silentMode", sc.get("silent")))
+    if raw is True or raw == 1:
+        return True
+    if isinstance(raw, str) and raw.strip().lower() in ("1", "true", "yes", "on", "silent"):
+        return True
+    return False
+
+
 def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
     """Derive default timed steps from Persona.speech_conditions."""
     sc = speech_conditions_of(persona)
     if not sc:
+        return []
+    # Coval Silent Mode: no auto ambient/barge/timed silence — caller stays mute.
+    if silent_mode_enabled(persona):
         return []
     steps: list[ScriptStep] = []
 
@@ -347,10 +366,62 @@ def apply_caller_behavior(
     path_label: str = "scenario",
 ) -> tuple[list[ScriptStep], ScriptVerifySpec | None]:
     """Compile persona speech_conditions + Behavior and merge with explicit Script."""
+    silent = silent_mode_enabled(persona)
     compiled: list[ScriptStep] = []
     compiled.extend(compile_from_speech_conditions(persona))
-    if behavior_spec:
+    if behavior_spec and not silent:
+        # Silent Mode disables background sound + interruption policies (Coval).
         compiled.extend(compile_from_behavior_spec(behavior_spec, f"{path_label}:Behavior"))
-    steps = merge_script_steps(explicit_steps, compiled)
+    elif behavior_spec and silent:
+        # Keep only wait/hang_up style silences from Behavior if any; drop speak/barge/noise.
+        raw_steps = compile_from_behavior_spec(behavior_spec, f"{path_label}:Behavior")
+        compiled.extend(
+            s for s in raw_steps if s.action in ("wait", "hang_up") and not s.barge_in
+        )
+    base_steps = list(explicit_steps)
+    if silent:
+        # Drop explicit speak/barge fixtures — silent caller never produces speech audio.
+        base_steps = [
+            s
+            for s in base_steps
+            if s.action in ("wait", "hang_up")
+            and not s.barge_in
+            and s.delivery != "room_pcm"
+        ] or [
+            s for s in base_steps if s.action in ("wait", "hang_up")
+        ]
+        # If hang_up with say remains, clear say so we don't inject goodbye speech.
+        cleaned: list[ScriptStep] = []
+        for s in base_steps:
+            if s.action == "hang_up" and (s.say or s.asset):
+                cleaned.append(
+                    ScriptStep(
+                        id=s.id,
+                        trigger=s.trigger,
+                        delay_ms=s.delay_ms,
+                        say="",
+                        label=s.label,
+                        once=s.once,
+                        min_agent_active_ms=s.min_agent_active_ms,
+                        delivery="gemini_text",
+                        asset=None,
+                        silence_after_cue_ms=s.silence_after_cue_ms,
+                        action="hang_up",
+                        require_agent_spoke_first=s.require_agent_spoke_first,
+                        require_agent_reply_this_turn=s.require_agent_reply_this_turn,
+                        defer_on_open_question=s.defer_on_open_question,
+                        open_question_idle_ms=s.open_question_idle_ms,
+                        barge_in=False,
+                        with_blip=False,
+                        gain=1.0,
+                        interrupt_class=s.interrupt_class,
+                        overlay=s.overlay,
+                        loop=False,
+                    )
+                )
+            else:
+                cleaned.append(s)
+        base_steps = cleaned
+    steps = merge_script_steps(base_steps, compiled)
     verify = default_verify_for_compiled(steps, explicit_verify)
     return steps, verify

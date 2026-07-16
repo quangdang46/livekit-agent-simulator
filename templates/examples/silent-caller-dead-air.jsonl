@@ -1,0 +1,8 @@
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"silent-caller-dead-air","locale":"en-US","tags":["silent","dead-air","example"]}}
+// Coval Silent Mode analog: unresponsive caller / phone put down.
+// silent_mode disables freestyle speech, agent-greeted nudge, and auto barge/noise.
+// Assert agent reprompts or ends; sim never produces speech audio.
+{"kind":"Persona","spec":{"name":"Silent caller","brief":"You called but you are not speaking. Stay completely mute for the entire call.","goals":["Remain silent while the agent handles dead air"],"speech_conditions":{"silent_mode":true}}}
+{"kind":"Execute","spec":{"max_turns":12,"timeout_s":60,"first_speaker":"agent"}}
+// Optional: hard hang after long dead air without farewell speech
+// {"kind":"Script","spec":{"steps":[{"id":"drop","trigger":"time","delay_ms":45000,"action":"hang_up","say":""}]}}

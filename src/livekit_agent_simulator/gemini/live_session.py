@@ -101,6 +101,7 @@ class GeminiCallerBridge:
         recorder: LocalConversationRecorder | None = None,
         midcall_cues: list | None = None,
         voice_gain: float = 1.0,
+        silent_mode: bool = False,
     ) -> None:
         self.cfg = cfg
         self.room = room
@@ -114,6 +115,8 @@ class GeminiCallerBridge:
         if not 0.0 <= float(voice_gain) <= 1.0:
             raise ValueError(f"voice_gain must be between 0.0 and 1.0 (got {voice_gain})")
         self._voice_gain = float(voice_gain)
+        # Coval Silent Mode: never freestyle-speak; hang-up farewell still allowed.
+        self._silent_mode = bool(silent_mode)
         # Dialog steering texts from CallerPolicy (bootstrap / reground); not PCM Script.
         self._midcall_cues = list(midcall_cues or [])
 
@@ -327,6 +330,7 @@ class GeminiCallerBridge:
                     "voice": voice.voice,
                     "language": voice.language,
                     "voice_gain": self._voice_gain,
+                    "silent_mode": bool(getattr(self, "_silent_mode", False)),
                 },
                 source="sim",
                 include_dialogue=False,
@@ -450,12 +454,16 @@ class GeminiCallerBridge:
         cues are allowed (main-compatible). Farewell / END_CALL freestyle is
         muted separately via ``_mute_hang_up_audio`` + deferred end_call.
         Script inject and hang-up farewell always pass.
+
+        Silent mode: freestyle is always blocked (dead-air / unresponsive caller).
         """
         if self._script_hangup_farewell:
             return True
         # gemini_text Script inject drives TTS through the same PCM path.
         if self._inject_turn_active:
             return True
+        if getattr(self, "_silent_mode", False):
+            return False
         if self._mute_persona_audio or self._persona_output_suppressed():
             return False
         return True
@@ -484,6 +492,15 @@ class GeminiCallerBridge:
         ``loop=True`` (room_pcm noise only) starts a continuous ambient bed that
         re-queues until hang-up / mixer stop. Does not block the Script runner.
         """
+        # Silent mode: no speech/noise inject. Hang-up farewell sets _script_hangup_farewell.
+        if getattr(self, "_silent_mode", False) and not self._script_hangup_farewell:
+            self.writer.emit(
+                "sim.silent_mode_skip_inject",
+                spec={"label": label, "delivery": delivery, "text": (text or "")[:120]},
+                source="sim",
+                include_dialogue=False,
+            )
+            return
         if delivery == "room_pcm":
             if self._mixer is None or self._source is None:
                 raise RuntimeError("Sim mic/mixer not ready — cannot play room_pcm cue")
