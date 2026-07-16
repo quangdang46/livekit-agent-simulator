@@ -188,10 +188,15 @@ lks scenario-init my-case --root /path/to/target
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
   - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
   - `noise_gain` / `barge_gain` (`0.0`–`1.0`) scale auto-compiled ambient / barge cues (also per-step Script `gain` / `volume`)
+<<<<<<< HEAD
   - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`, default `1.0`; aliases `voice_volume` / `volume`) scales **speech** PCM after Gemini Live (freestyle + inject). Noise beds are unchanged. Gemini Live has **no** native volume/speed API.
   - **Voice speed:** not supported on Gemini Live (`SpeechConfig` is voice name + language only). Do not ship a fake `voice_speed` flag; use soft traits or pre-recorded Script WAVs. Track upstream Live `speech_rate` if Google adds it.
   - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`) scales speech PCM after Gemini Live (see example `quiet-caller-confirm`).
   - **Silent mode (dead air):** `speech_conditions.silent_mode: true` — caller stays mute for the whole call (Coval Silent Mode). Disables freestyle, agent-greeted nudge, auto barge/noise; hang_up is silent. Use for reprompt/timeout QA.
+=======
+  - **Quiet caller:** `speech_conditions.voice_gain` (`0.0`–`1.0`) — STT stress (PCM scale).
+  - **Silent mode:** `speech_conditions.silent_mode: true` — dead-air / unresponsive caller.
+>>>>>>> 127f8ce (docs: installation lks primary + authoring validate gate for #27 PR)
   - **Continuous ambient bed:** `noise_when: "background"` (or Behavior/Script `"loop": true`) re-queues `room_pcm` noise until hang-up (parallel under speech). One-shot bursts stay default (`once` / no loop).  
 - **Behavior** kind → explicit barge/silence/ambient policies; set Script step `class` (`correction` \| `backchannel` \| `noise` \| `dtmf` \| `silence` \| `escalate`) so recovery metrics and web chips stay honest  
 - **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)
