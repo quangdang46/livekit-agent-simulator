@@ -190,6 +190,7 @@ lks scenario-init my-case --root /path/to/target
   - `noise_gain` / `barge_gain` (`0.0`–`1.0`) scale auto-compiled ambient / barge cues (also per-step Script `gain` / `volume`)
   - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`, default `1.0`; aliases `voice_volume` / `volume`) scales **speech** PCM after Gemini Live (freestyle + inject). Noise beds are unchanged. Gemini Live has **no** native volume/speed API.
   - **Voice speed:** not supported on Gemini Live (`SpeechConfig` is voice name + language only). Do not ship a fake `voice_speed` flag; use soft traits or pre-recorded Script WAVs. Track upstream Live `speech_rate` if Google adds it.
+  - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`) scales speech PCM after Gemini Live (see example `quiet-caller-confirm`).
   - **Silent mode (dead air):** `speech_conditions.silent_mode: true` — caller stays mute for the whole call (Coval Silent Mode). Disables freestyle, agent-greeted nudge, auto barge/noise; hang_up is silent. Use for reprompt/timeout QA.
   - **Continuous ambient bed:** `noise_when: "background"` (or Behavior/Script `"loop": true`) re-queues `room_pcm` noise until hang-up (parallel under speech). One-shot bursts stay default (`once` / no loop).  
 - **Behavior** kind → explicit barge/silence/ambient policies; set Script step `class` (`correction` \| `backchannel` \| `noise` \| `dtmf` \| `silence` \| `escalate`) so recovery metrics and web chips stay honest  
