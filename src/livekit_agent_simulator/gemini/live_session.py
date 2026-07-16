@@ -362,10 +362,13 @@ class GeminiCallerBridge:
     def stop(self) -> None:
         self.end_call.set()
         if self._mixer is not None:
+            self._mixer.clear_noise()
             self._mixer.stop()
 
     def sim_hang_up(self) -> None:
         """Called by ScriptRunner action=hang_up : hard disconnect from the room."""
+        if self._mixer is not None:
+            self._mixer.clear_noise()
         self.writer.emit(
             "sim.hang_up",
             spec={"source": "script", "by": "sim"},
@@ -436,13 +439,20 @@ class GeminiCallerBridge:
         asset: str | None = None,
         scenario_dir: Path | None = None,
         gain: float = 1.0,
+        loop: bool = False,
     ) -> None:
-        """Inject caller speech while the agent is talking."""
+        """Inject caller speech while the agent is talking.
+
+        ``loop=True`` (room_pcm noise only) starts a continuous ambient bed that
+        re-queues until hang-up / mixer stop. Does not block the Script runner.
+        """
         if delivery == "room_pcm":
             if self._mixer is None or self._source is None:
                 raise RuntimeError("Sim mic/mixer not ready — cannot play room_pcm cue")
             if not asset:
                 raise ValueError("room_pcm cue requires asset")
+            if loop and _is_voice_cue_asset(asset):
+                raise ValueError("loop is for noise/ambient beds, not voice.* speech assets")
             wav_path = resolve_cue_asset(
                 asset,
                 scenario_dir=scenario_dir,
@@ -463,13 +473,21 @@ class GeminiCallerBridge:
             # Noise layers stay on push_noise so they can ride under persona speech.
             vocal = _is_voice_cue_asset(asset)
             if vocal:
+                if loop:
+                    raise ValueError("loop is not supported for voice.* speech assets")
                 self.suppress_persona_output(int(duration_s * 1000) + 400)
                 self._mixer.push_speech(pcm, gain=gain)
                 mix = "speech"
+                await asyncio.sleep(duration_s)
             else:
-                self._mixer.push_noise(pcm, gain=gain)
-                mix = "parallel"
-            await asyncio.sleep(duration_s)
+                self._mixer.push_noise(pcm, gain=gain, loop=loop)
+                mix = "parallel_loop" if loop else "parallel"
+                if not loop:
+                    # One-shot: wait for playout so subsequent Script timing stays honest.
+                    await asyncio.sleep(duration_s)
+                else:
+                    # Continuous bed: arm quickly so Script/freestyle can continue under noise.
+                    await asyncio.sleep(min(0.05, duration_s))
             self.writer.emit(
                 "sim.script_inject",
                 spec={
@@ -480,6 +498,7 @@ class GeminiCallerBridge:
                     "mix": mix,
                     "duration_ms": int(duration_s * 1000),
                     "gain": gain,
+                    "loop": bool(loop),
                 },
                 source="script",
                 include_dialogue=False,

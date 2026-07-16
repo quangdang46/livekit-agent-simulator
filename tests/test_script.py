@@ -250,3 +250,72 @@ def test_evaluate_hang_up_step_counts_as_fired():
     result = evaluate_script_log(events, steps, ScriptVerifySpec())
     assert result["pass"] is True
     assert result["hang_ups_fired"] == 1
+
+
+def test_parse_script_loop_room_pcm():
+    from livekit_agent_simulator.script_parse import parse_script_steps
+
+    steps = parse_script_steps(
+        {
+            "steps": [
+                {
+                    "id": "bed",
+                    "trigger": "time",
+                    "delay_ms": 500,
+                    "delivery": "room_pcm",
+                    "asset": "builtin:noise.ambient",
+                    "say": "[ambient]",
+                    "loop": True,
+                    "gain": 0.3,
+                }
+            ]
+        },
+        "test",
+    )
+    assert len(steps) == 1
+    assert steps[0].loop is True
+    assert steps[0].gain == 0.3
+
+
+def test_parse_script_loop_rejects_gemini_text():
+    from livekit_agent_simulator.script_parse import parse_script_steps
+    import pytest
+
+    with pytest.raises(ValueError, match="loop requires delivery=room_pcm"):
+        parse_script_steps(
+            {
+                "steps": [
+                    {
+                        "id": "bad",
+                        "trigger": "time",
+                        "delay_ms": 100,
+                        "say": "hi",
+                        "loop": True,
+                    }
+                ]
+            },
+            "test",
+        )
+
+
+def test_parse_script_loop_rejects_voice_asset():
+    from livekit_agent_simulator.script_parse import parse_script_steps
+    import pytest
+
+    with pytest.raises(ValueError, match="noise/ambient"):
+        parse_script_steps(
+            {
+                "steps": [
+                    {
+                        "id": "bad",
+                        "trigger": "time",
+                        "delay_ms": 100,
+                        "delivery": "room_pcm",
+                        "asset": "builtin:voice.barge_short",
+                        "say": "[v]",
+                        "loop": True,
+                    }
+                ]
+            },
+            "test",
+        )

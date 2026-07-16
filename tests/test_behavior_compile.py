@@ -104,3 +104,46 @@ def test_apply_caller_behavior_with_behavior_kind():
     )
     assert any(s.id == "b1" for s in steps)
     assert verify is not None
+
+
+def test_compile_noise_when_background_loops():
+    persona = {
+        "brief": "x",
+        "speech_conditions": {
+            "noise": "builtin:noise.ambient",
+            "noise_when": "background",
+            "noise_gain": 0.3,
+        },
+    }
+    steps = compile_from_speech_conditions(persona)
+    amb = next(s for s in steps if s.id == "auto-ambient")
+    assert amb.loop is True
+    assert amb.gain == 0.3
+    assert amb.delivery == "room_pcm"
+    assert amb.interrupt_class == "noise"
+
+
+def test_compile_noise_default_once_no_loop():
+    persona = {
+        "brief": "x",
+        "speech_conditions": {"noise": "builtin:noise.ambient"},
+    }
+    steps = compile_from_speech_conditions(persona)
+    amb = next(s for s in steps if s.id == "auto-ambient")
+    assert amb.loop is False
+
+
+def test_compile_behavior_ambient_loop():
+    steps = compile_from_behavior_spec(
+        {
+            "ambient": {
+                "asset": "builtin:noise.ambient",
+                "delay_ms": 1000,
+                "loop": True,
+                "gain": 0.25,
+            }
+        }
+    )
+    amb = next(s for s in steps if s.delivery == "room_pcm")
+    assert amb.loop is True
+    assert amb.gain == 0.25

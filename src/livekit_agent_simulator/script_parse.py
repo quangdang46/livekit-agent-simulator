@@ -117,6 +117,34 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
         else:
             with_blip = barge_in and delivery != "room_pcm"
         gain = _parse_step_gain(raw, path_label, step_id)
+        loop = bool(raw.get("loop") or raw.get("repeat") is True)
+        if "repeat" in raw and not isinstance(raw.get("repeat"), bool):
+            # repeat as count is not supported; only bool alias for loop
+            if raw.get("repeat") not in (None, 0, 1, "0", "1"):
+                raise ValueError(
+                    f"{path_label}: Script step {step_id!r}: use loop=true for continuous "
+                    f"ambient beds (repeat count is not supported)"
+                )
+        if loop and delivery != "room_pcm":
+            raise ValueError(
+                f"{path_label}: Script step {step_id!r}: loop requires delivery=room_pcm"
+            )
+        if loop and action != "speak":
+            raise ValueError(
+                f"{path_label}: Script step {step_id!r}: loop only applies to speak + room_pcm"
+            )
+        asset_s = str(asset).strip() if asset else None
+        if loop and asset_s:
+            name = asset_s.lower()
+            if name.startswith("builtin:"):
+                name = name[len("builtin:") :]
+            if name.startswith("@"):
+                name = name[1:]
+            if name.startswith("voice."):
+                raise ValueError(
+                    f"{path_label}: Script step {step_id!r}: loop is for noise/ambient beds, "
+                    f"not voice.* speech assets"
+                )
         try:
             interrupt_class = normalize_interrupt_class(
                 raw.get("class") or raw.get("interrupt_class"),
@@ -147,7 +175,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 once=bool(raw.get("once", True)),
                 min_agent_active_ms=min_agent,
                 delivery=delivery,
-                asset=str(asset).strip() if asset else None,
+                asset=asset_s,
                 silence_after_cue_ms=int(raw.get("silence_after_cue_ms", 0)),
                 action=action,
                 require_agent_spoke_first=bool(raw.get("require_agent_spoke_first", True)),
@@ -161,6 +189,7 @@ def parse_script_steps(spec: dict[str, Any], path_label: str) -> list[ScriptStep
                 gain=gain,
                 interrupt_class=interrupt_class,
                 overlay=overlay,
+                loop=loop,
             )
         )
     return steps

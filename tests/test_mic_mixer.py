@@ -123,3 +123,48 @@ def test_mixer_pop_frame_mixes_speech_and_noise() -> None:
     assert out[0] == 1500
     assert mixer.noise_remaining_ms() == 0
     assert mixer.speech_queued_ms() == 0
+
+
+def test_mixer_noise_loop_requeues() -> None:
+    """Looped ambient bed keeps producing samples after one template length."""
+    from livekit_agent_simulator.audio.mic_mixer import ParallelMicMixer
+
+    class _FakeSrc:
+        sample_rate = 24_000
+
+        async def capture_frame(self, frame) -> None:
+            pass
+
+    mixer = ParallelMicMixer(_FakeSrc(), sample_rate=24_000, frame_ms=10)
+    n = mixer.frame_samples
+    # Template shorter than one frame so refill is forced every pop.
+    noise = array.array("h", [100] * max(1, n // 2))
+    mixer.push_noise(noise.tobytes(), loop=True)
+    for _ in range(6):
+        pcm = mixer._pop_frame()
+        out = array.array("h")
+        out.frombytes(pcm)
+        assert out[0] == 100
+    assert mixer.noise_remaining_ms() > 0
+    mixer.clear_noise()
+    assert mixer.noise_remaining_ms() == 0
+
+
+def test_mixer_one_shot_noise_drains() -> None:
+    from livekit_agent_simulator.audio.mic_mixer import ParallelMicMixer
+
+    class _FakeSrc:
+        sample_rate = 24_000
+
+        async def capture_frame(self, frame) -> None:
+            pass
+
+    mixer = ParallelMicMixer(_FakeSrc(), sample_rate=24_000, frame_ms=10)
+    n = mixer.frame_samples
+    noise = array.array("h", [50] * n)
+    mixer.push_noise(noise.tobytes(), loop=False)
+    pcm = mixer._pop_frame()
+    out = array.array("h")
+    out.frombytes(pcm)
+    assert out[0] == 50
+    assert mixer.noise_remaining_ms() == 0

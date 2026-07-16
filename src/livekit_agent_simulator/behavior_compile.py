@@ -50,6 +50,13 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
         noise_gain = float(sc.get("noise_gain", 1.0))
         if not 0.0 <= noise_gain <= 1.0:
             raise ValueError("Persona.speech_conditions.noise_gain must be between 0.0 and 1.0")
+        when = str(sc.get("noise_when") or sc.get("ambient_when") or "once").strip().lower()
+        loop = when in ("background", "loop", "continuous", "bed", "always")
+        # Explicit bool wins if present
+        if "noise_loop" in sc:
+            loop = bool(sc.get("noise_loop"))
+        elif "loop" in sc and isinstance(sc.get("loop"), bool):
+            loop = bool(sc.get("loop"))
         steps.append(
             ScriptStep(
                 id="auto-ambient",
@@ -61,6 +68,8 @@ def compile_from_speech_conditions(persona: dict[str, Any]) -> list[ScriptStep]:
                 asset=str(noise).strip(),
                 once=True,
                 gain=noise_gain,
+                loop=loop,
+                interrupt_class="noise",
             )
         )
 
@@ -126,6 +135,13 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
     ambient = spec.get("ambient")
     if isinstance(ambient, dict) and ambient.get("asset"):
         delay = int(ambient.get("delay_ms") or 5000)
+        amb_gain = float(ambient.get("gain", ambient.get("volume", 1.0)))
+        if not 0.0 <= amb_gain <= 1.0:
+            raise ValueError(f"{path_label}: ambient.gain must be between 0.0 and 1.0")
+        when = str(ambient.get("when") or ambient.get("noise_when") or "").strip().lower()
+        loop = bool(ambient.get("loop", False)) or when in (
+            "background", "loop", "continuous", "bed", "always",
+        )
         steps.append(
             ScriptStep(
                 id=str(ambient.get("id") or "behavior-ambient"),
@@ -136,6 +152,9 @@ def compile_from_behavior_spec(spec: dict[str, Any], path_label: str = "Behavior
                 delivery="room_pcm",
                 asset=str(ambient["asset"]).strip(),
                 once=bool(ambient.get("once", True)),
+                gain=amb_gain,
+                loop=loop,
+                interrupt_class="noise",
             )
         )
 

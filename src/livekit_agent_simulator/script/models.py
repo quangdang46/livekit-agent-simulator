@@ -79,7 +79,11 @@ class ScriptStep:
     delivery: str = "gemini_text"  # gemini_text | room_pcm
     asset: str | None = None
     silence_after_cue_ms: int = 0
-    action: str = "speak"  # speak | wait | hang_up
+    action: str = "speak"
+
+    # Continuous ambient bed for room_pcm noise (re-queues until hang-up).
+    # Distinct from once= (fire this step once). Only valid with delivery=room_pcm.
+    loop: bool = False  # speak | wait | hang_up
     # For silence trigger: only start counting idle after agent has spoken once.
     require_agent_spoke_first: bool = True
     # hang_up: do not fire while user spoke and agent has not answered that turn yet.

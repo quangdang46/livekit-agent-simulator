@@ -58,10 +58,13 @@ Vocal `voice.*` assets are PCM speech mixed into the sim mic (`room_pcm`). Prefe
 
 **Per-step volume:** set `"gain": 0.0–1.0` on any Script step (alias `"volume"`). Applies to `gemini_text` TTS and `room_pcm` cues. Persona `speech_conditions` supports `barge_gain` and `noise_gain` for auto-compiled steps.
 
+**Continuous ambient bed:** set `"loop": true` on a `room_pcm` noise step (or `Persona.speech_conditions.noise_when: "background"` / `Behavior.ambient.loop: true`). The mixer re-queues the WAV under speech until hang-up. Prefer short seamless noise beds; longer custom WAVs can live in `.agent-sim/cues/`. Not for `voice.*` speech assets.
+
 ## Scenario examples
 
 ```json
 {"id":"n1","trigger":"time","delay_ms":5000,"delivery":"room_pcm","asset":"builtin:noise.loud","say":"[noise]"}
+{"id":"bed","trigger":"time","delay_ms":1500,"delivery":"room_pcm","asset":"builtin:noise.ambient","say":"[ambient]","loop":true,"gain":0.3}
 ```
 
 ```json

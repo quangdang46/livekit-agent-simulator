@@ -235,6 +235,7 @@ class ScriptRunner:
                             asset=step.asset,
                             scenario_dir=self.scenario_dir,
                             gain=step.gain,
+                            loop=False,
                         )
                     except Exception as say_err:
                         inject_error = f"{type(say_err).__name__}: {say_err}"
@@ -329,6 +330,7 @@ class ScriptRunner:
                         asset=step.asset,
                         scenario_dir=self.scenario_dir,
                         gain=step.gain,
+                        loop=bool(getattr(step, "loop", False)),
                     )
                 except Exception as e:  # noqa: BLE001 — keep script chain alive
                     inject_error = f"{type(e).__name__}: {e}"
@@ -378,6 +380,7 @@ class ScriptRunner:
                     "delivery": step.delivery if step.action != "wait" else None,
                     "asset": step.asset if step.action != "wait" else None,
                     "gain": step.gain if step.action == "speak" else None,
+                    "loop": bool(getattr(step, "loop", False)) if step.action == "speak" else None,
                     "waited_ms": waited_ms,
                     "hold_silence_ms": hold_silence_ms if step.action == "wait" else 0,
                     "agent_active": self.observer.agent_is_active_speaker,

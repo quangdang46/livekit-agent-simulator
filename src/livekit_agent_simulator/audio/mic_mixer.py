@@ -100,7 +100,8 @@ class ParallelMicMixer:
 
         self._lock = threading.Lock()
         self._speech = array.array("h")
-        self._noise_tracks: list[array.array] = []
+        # Each noise track: (remaining samples, optional loop template)
+        self._noise_tracks: list[tuple[array.array, array.array | None]] = []
         self._stop = asyncio.Event()
         self._task: asyncio.Task | None = None
         self._frames_written = 0
@@ -147,22 +148,37 @@ class ParallelMicMixer:
         with self._lock:
             del self._speech[:]
 
-    def push_noise(self, pcm: bytes, *, gain: float = 1.0) -> None:
-        """Start a noise layer that plays in parallel with speech (does not block speech)."""
+    def push_noise(self, pcm: bytes, *, gain: float = 1.0, loop: bool = False) -> None:
+        """Start a noise layer that plays in parallel with speech (does not block speech).
+
+        ``loop=True`` re-queues the same PCM until the mixer stops (continuous ambient bed).
+        """
         samples = _pcm_to_samples(pcm)
         if not samples:
             return
         if gain != 1.0:
             samples = scale_pcm16_samples(samples, gain)
+        template = array.array("h", samples) if loop else None
         with self._lock:
-            self._noise_tracks.append(samples)
+            self._noise_tracks.append((samples, template))
             self._noise_samples_in += len(samples)
+
+    def clear_noise(self) -> None:
+        """Drop all active noise layers (including looping ambient beds)."""
+        with self._lock:
+            self._noise_tracks.clear()
 
     def noise_remaining_ms(self) -> int:
         with self._lock:
             if not self._noise_tracks:
                 return 0
-            longest = max(len(t) for t in self._noise_tracks)
+            # Looping beds report a positive remaining so waiters know noise is active.
+            longest = 0
+            for remaining, template in self._noise_tracks:
+                if template is not None:
+                    longest = max(longest, len(template))
+                else:
+                    longest = max(longest, len(remaining))
         return int(longest * 1000 / self.sample_rate)
 
     def speech_queued_ms(self) -> int:
@@ -182,12 +198,19 @@ class ParallelMicMixer:
             await asyncio.sleep(self.frame_ms / 1000.0)
 
     async def wait_noise_drain(self, *, timeout_s: float | None = None) -> None:
-        """Optional: wait until active noise layers finish (speech may continue)."""
+        """Optional: wait until active noise layers finish (speech may continue).
+
+        Looping beds never drain on their own — only one-shot noise is waited on.
+        """
         loop = asyncio.get_running_loop()
         deadline = None if timeout_s is None else loop.time() + timeout_s
         while not self._stop.is_set():
             with self._lock:
-                pending = sum(len(t) for t in self._noise_tracks)
+                pending = 0
+                for remaining, template in self._noise_tracks:
+                    if template is not None:
+                        continue  # looping beds ignored for drain wait
+                    pending += len(remaining)
             if pending == 0:
                 return
             if deadline is not None and loop.time() >= deadline:
@@ -211,17 +234,25 @@ class ParallelMicMixer:
                 speech = array.array("h", [0] * n)
 
             noise_sum = array.array("h", [0] * n)
-            still: list[array.array] = []
-            for track in self._noise_tracks:
-                if len(track) >= n:
-                    chunk = track[:n]
-                    del track[:n]
-                    still.append(track)
-                elif len(track) > 0:
-                    chunk = track[:]
-                    # track exhausted this frame
+            still: list[tuple[array.array, array.array | None]] = []
+            for remaining, template in self._noise_tracks:
+                if template is not None:
+                    # Continuous bed: refill from template when drained.
+                    while len(remaining) < n:
+                        remaining.extend(template)
+                    chunk = remaining[:n]
+                    del remaining[:n]
+                    still.append((remaining, template))
+                elif len(remaining) >= n:
+                    chunk = remaining[:n]
+                    del remaining[:n]
+                    if remaining:
+                        still.append((remaining, None))
+                elif len(remaining) > 0:
+                    chunk = remaining[:]
                     pad = n - len(chunk)
                     chunk.extend([0] * pad)
+                    # one-shot drained after partial last frame
                 else:
                     continue
                 for i in range(n):

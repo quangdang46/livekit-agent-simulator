@@ -1,0 +1,8 @@
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"ambient-loop-office","locale":"en-US","tags":["noise","ambient","example"]}}
+// Continuous office-style ambient bed under the whole call (looped room_pcm).
+// noise_when=background compiles to ScriptStep.loop=true; gain keeps SNR realistic.
+{"kind":"Persona","spec":{"name":"Noisy office caller","brief":"You are calling from a busy office. Background noise is on the line; speak clearly and complete your goals.","goals":["Hear the agent greeting","Ask one simple question about hours or pricing","End the call politely"],"traits":["polite"],"speech_conditions":{"noise":"builtin:noise.ambient","noise_when":"background","noise_gain":0.3,"noise_delay_ms":1500}}}
+{"kind":"Execute","spec":{"max_turns":6,"timeout_s":90,"first_speaker":"agent"}}
+// Optional explicit form (same effect as speech_conditions above):
+// {"kind":"Behavior","spec":{"ambient":{"asset":"builtin:noise.ambient","delay_ms":1500,"loop":true,"gain":0.3}}}
+// {"kind":"Script","spec":{"steps":[{"id":"bed","trigger":"time","delay_ms":1500,"delivery":"room_pcm","asset":"builtin:noise.ambient","say":"[ambient]","loop":true,"gain":0.3}]}}

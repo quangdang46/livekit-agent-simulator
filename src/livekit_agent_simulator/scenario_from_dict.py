@@ -199,6 +199,7 @@ def export_scenario_dict(scenario: Scenario) -> dict[str, Any]:
                     "class": s.interrupt_class,
                     "with_blip": s.with_blip,
                     "gain": s.gain,
+                    "loop": s.loop,
                 }
                 for s in scenario.script_steps
             ],
