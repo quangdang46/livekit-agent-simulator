@@ -101,13 +101,24 @@ async def execute_scenario(
     scenario_id: str,
     repeat: int = 1,
     pass_at_k: int | None = None,
+    run_name: str | None = None,
 ) -> dict[str, Any]:
     """Validate then execute one scenario from `.agent-sim/scenarios/*.jsonl`.
 
     ``repeat`` / ``pass_at_k``: flake control — run N times, require ≥ K hard-pass
     iterations (default K = N). Example: repeat=5, pass_at_k=3.
+
+    ``run_name``: override slug after auto seq prefix
+    (e.g. ``demo`` → ``001-demo``; default → ``001-<scenario>``).
+    Leading ``seq`` is auto-incremented (001, 002, …) from existing reports.
     """
-    return await ops.execute_scenario(project_root, scenario_id, repeat=repeat, pass_at_k=pass_at_k)
+    return await ops.execute_scenario(
+        project_root,
+        scenario_id,
+        repeat=repeat,
+        pass_at_k=pass_at_k,
+        run_name=run_name,
+    )
 
 
 @mcp.tool
@@ -139,9 +150,13 @@ async def execute_scenarios(
 
 
 @mcp.tool
-async def execute_scenario_dict(project_root: str, scenario: dict[str, Any]) -> dict[str, Any]:
+async def execute_scenario_dict(
+    project_root: str,
+    scenario: dict[str, Any],
+    run_name: str | None = None,
+) -> dict[str, Any]:
     """Validate then run an in-memory scenario dict (no JSONL file). Same fields as export_scenario."""
-    return await ops.execute_scenario_dict(project_root, scenario)
+    return await ops.execute_scenario_dict(project_root, scenario, run_name=run_name)
 
 
 @mcp.tool

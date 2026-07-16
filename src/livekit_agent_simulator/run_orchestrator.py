@@ -17,8 +17,8 @@ import asyncio
 import json
 import re
 import time
-import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from .audio.local_recorder import DEFAULT_FILENAME, LocalConversationRecorder
@@ -37,25 +37,96 @@ from .scenario import Scenario, SimulatorSpec, find_scenario, validate_telephony
 from .script import ScriptRunner, build_caller_behavior_summary, evaluate_script_log
 
 
-def new_run_id(scenario_id: str) -> str:
-    """Human-readable run id: ``{scenario}-{YYYYMMDD-HHMMSS}-{hex4}`` (UTC)."""
-    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", (scenario_id or "").strip()).strip("-_.")
-    slug = (slug[:48] if slug else "scenario").lower()
-    now = datetime.now(timezone.utc)
-    return f"{slug}-{now.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
+_LEADING_SEQ = re.compile(r"^(\d+)-")
 
 
-async def run_scenario(cfg: SimConfig, scenario_id: str) -> dict[str, Any]:
+def _run_id_slug(value: str, *, max_len: int = 48, fallback: str = "") -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", (value or "").strip()).strip("-_.")
+    slug = (slug[:max_len] if slug else fallback).lower()
+    return slug
+
+
+def next_run_seq(reports_dir: Path | None) -> int:
+    """Next report sequence number (001, 002, …) from existing report folders."""
+    if reports_dir is None or not Path(reports_dir).is_dir():
+        return 1
+    best = 0
+    for p in Path(reports_dir).iterdir():
+        if not p.is_dir():
+            continue
+        m = _LEADING_SEQ.match(p.name)
+        if m:
+            best = max(best, int(m.group(1)))
+    return best + 1
+
+
+def new_run_id(
+    scenario_id: str,
+    *,
+    name: str | None = None,
+    reports_dir: Path | None = None,
+    seq: int | None = None,
+) -> str:
+    """Human-readable run id.
+
+    Default: ``{NNN}-{scenario}``
+    With ``name``: ``{NNN}-{name}`` (scenario id stays in meta.json only).
+
+    ``NNN`` is an auto-incrementing prefix from ``reports_dir``.
+    Pass ``seq`` to pin a number (tests / retry loops).
+    """
+    scenario_slug = _run_id_slug(scenario_id, fallback="scenario")
+    n = seq if seq is not None else next_run_seq(reports_dir)
+    prefix = f"{n:03d}"
+    if name:
+        name_slug = _run_id_slug(name, max_len=64)
+        if name_slug:
+            return f"{prefix}-{name_slug}"
+    return f"{prefix}-{scenario_slug}"
+
+
+def allocate_run_dir(
+    reports_dir: Path,
+    scenario_id: str,
+    *,
+    name: str | None = None,
+) -> tuple[str, Path]:
+    """Pick a free run_id and create its report folder (safe under parallel runs)."""
+    reports_dir = Path(reports_dir)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    seq = next_run_seq(reports_dir)
+    for _ in range(10_000):
+        run_id = new_run_id(scenario_id, name=name, seq=seq)
+        report_dir = reports_dir / run_id
+        try:
+            report_dir.mkdir(parents=False)
+            return run_id, report_dir
+        except FileExistsError:
+            seq += 1
+    raise RuntimeError(f"Could not allocate a free report dir under {reports_dir}")
+
+
+async def run_scenario(
+    cfg: SimConfig,
+    scenario_id: str,
+    *,
+    run_name: str | None = None,
+) -> dict[str, Any]:
     """Run one scenario by id from `.agent-sim/scenarios/`."""
     preflight, _ = await run_preflight(cfg.project_root, connectivity=True)
     if not preflight.ok:
         failed = [c for c in preflight.checks if c["status"] == "fail"]
         raise RuntimeError("Preflight failed: " + "; ".join(f"{c['name']}: {c['detail']}" for c in failed))
     scenario = find_scenario(cfg.scenarios_dir, scenario_id)
-    return await run_scenario_instance(cfg, scenario)
+    return await run_scenario_instance(cfg, scenario, run_name=run_name)
 
 
-async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str, Any]:
+async def run_scenario_instance(
+    cfg: SimConfig,
+    scenario: Scenario,
+    *,
+    run_name: str | None = None,
+) -> dict[str, Any]:
     """Run a parsed Scenario (file or in-memory). Returns {run_id, status, report_dir, summary}.
 
     Phases (in order):
@@ -71,8 +142,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
     plugin_load = ensure_plugins_loaded(cfg.project_root, scenario.plugin_modules)
     run = scenario.run_spec
     dispatch_metadata = scenario.dispatch_metadata(cfg.livekit.dispatch_metadata)
-    run_id = new_run_id(scenario.id)
-    report_dir = cfg.reports_dir / run_id
+    run_id, report_dir = allocate_run_dir(cfg.reports_dir, scenario.id, name=run_name)
     writer = EventWriter(
         run_id,
         report_dir,
@@ -84,6 +154,7 @@ async def run_scenario_instance(cfg: SimConfig, scenario: Scenario) -> dict[str,
     started_utc = datetime.now(timezone.utc).isoformat()
     meta: dict[str, Any] = {
         "run_id": run_id,
+        "run_name": run_name,
         "scenario_id": scenario.id,
         "scenario_file": str(scenario.path),
         "run_spec": {

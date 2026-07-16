@@ -270,7 +270,12 @@ def list_cues(project_root: Path | str | None = None) -> dict[str, Any]:
         return list_all_cues(root if (root / DOT_FOLDER).is_dir() else None)
 
 
-async def _run_scenario_dict(project_root: Path | str, scenario: dict[str, Any]) -> dict[str, Any]:
+async def _run_scenario_dict(
+    project_root: Path | str,
+    scenario: dict[str, Any],
+    *,
+    run_name: str | None = None,
+) -> dict[str, Any]:
     """Internal: run dict after preflight (no schema validation wrapper)."""
     cfg = load_config(project_root)
     pf = await preflight(cfg.project_root, connectivity=True)
@@ -279,22 +284,32 @@ async def _run_scenario_dict(project_root: Path | str, scenario: dict[str, Any])
         raise RuntimeError("Preflight failed: " + "; ".join(f"{c['name']}: {c['detail']}" for c in failed))
     scenario_id = str(scenario.get("id") or (scenario.get("metadata") or {}).get("id", "dynamic"))
     s = scenario_from_dict(scenario, path=cfg.scenarios_dir / f"{scenario_id}.jsonl")
-    return await run_orchestrator.run_scenario_instance(cfg, s)
+    return await run_orchestrator.run_scenario_instance(cfg, s, run_name=run_name)
 
 
-async def _run_scenario(project_root: Path | str, scenario_id: str) -> dict[str, Any]:
+async def _run_scenario(
+    project_root: Path | str,
+    scenario_id: str,
+    *,
+    run_name: str | None = None,
+) -> dict[str, Any]:
     """Internal: run JSONL scenario after preflight (orchestrator also preflights)."""
     cfg = load_config(project_root)
-    return await run_orchestrator.run_scenario(cfg, scenario_id)
+    return await run_orchestrator.run_scenario(cfg, scenario_id, run_name=run_name)
 
 
-async def execute_scenario_dict(project_root: Path | str, scenario: dict[str, Any]) -> dict[str, Any]:
+async def execute_scenario_dict(
+    project_root: Path | str,
+    scenario: dict[str, Any],
+    *,
+    run_name: str | None = None,
+) -> dict[str, Any]:
     """Validate dict-shaped scenario then run (no JSONL file on disk required)."""
     try:
         scenario_from_dict(scenario)
     except ScenarioError as e:
         return {"executed": False, "validation": {"valid": False, "error": str(e)}}
-    result = await _run_scenario_dict(project_root, scenario)
+    result = await _run_scenario_dict(project_root, scenario, run_name=run_name)
     return {"executed": True, "validation": {"valid": True}, **result}
 
 
@@ -304,6 +319,7 @@ async def execute_scenario(
     *,
     repeat: int = 1,
     pass_at_k: int | None = None,
+    run_name: str | None = None,
 ) -> dict[str, Any]:
     """Validate then run one scenario from `.agent-sim/scenarios/<id>.jsonl`.
 
@@ -328,7 +344,7 @@ async def execute_scenario(
 
     for i in range(repeat):
         try:
-            result = await _run_scenario(project_root, scenario_id)
+            result = await _run_scenario(project_root, scenario_id, run_name=run_name)
             # _run_scenario returns raw orchestrator result without executed/validation
             result["executed"] = True
             result["validation"] = {"valid": True, "id": scenario_id}
@@ -361,6 +377,8 @@ async def execute_scenario(
         "ok": ok,
         "iterations": iterations,
     }
+    if run_name:
+        out["run_name"] = run_name
     # Attach last result fields for backward compat
     if iterations:
         last = iterations[-1]

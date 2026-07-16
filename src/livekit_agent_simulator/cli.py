@@ -224,9 +224,22 @@ def execute(
         "-k",
         help="Minimum hard-pass iterations (default = repeat). Example: --repeat 5 --pass-at-k 3",
     ),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Override slug after seq prefix (e.g. demo → reports/001-demo/)",
+    ),
 ) -> None:
     """Validate then execute one scenario from .agent-sim/scenarios/. (MCP: execute_scenario)"""
-    result = _run(ops.execute_scenario(_root(root), scenario_id, repeat=repeat, pass_at_k=pass_at_k))
+    result = _run(
+        ops.execute_scenario(
+            _root(root),
+            scenario_id,
+            repeat=repeat,
+            pass_at_k=pass_at_k,
+            run_name=name,
+        )
+    )
     from .suite import evaluate_run_result
 
     gate = evaluate_run_result(result, strict_judge=strict_judge)
@@ -301,6 +314,11 @@ def execute_dict_cmd(
         help="JSON file with scenario dict; omit to read JSON from stdin",
     ),
     root: Optional[Path] = ROOT_OPTION,
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Override slug after seq prefix (e.g. demo → reports/001-demo/)",
+    ),
 ) -> None:
     """Validate then run an in-memory scenario JSON. (MCP: execute_scenario_dict)"""
     try:
@@ -314,7 +332,7 @@ def execute_dict_cmd(
     if not isinstance(scenario, dict):
         typer.secho("Scenario JSON must be an object", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
-    result = _run(ops.execute_scenario_dict(_root(root), scenario))
+    result = _run(ops.execute_scenario_dict(_root(root), scenario, run_name=name))
     from .suite import evaluate_run_result
 
     gate = evaluate_run_result(result, strict_judge=False)
