@@ -38,8 +38,10 @@ class OutcomeExpect:
       - recovery: agent re-engages after sim barge-in / interruption
       - latency: hard gates on turn_taking / TTFW / recovery percentiles (P1.3)
       - ended_by: assert which side ended the call (sim | agent | detect)
+- backchannel_agent_continued: after a backchannel cue, agent continued without tool storm
       - goals_met: LLM judge checks caller stated/pursued N goals before [END_CALL]
       - constraint_respected: caller must_not leak forbidden phrases/patterns
+- backchannel_agent_continued: after backchannel, agent re-engages normally
         (hard deterministic on user transcript; optional LLM pending when no phrases)
     """
 
@@ -157,7 +159,7 @@ def parse_assert_spec(spec: dict[str, Any], path_label: str = "Assert") -> Asser
         if not isinstance(raw, dict) or not raw.get("id"):
             raise ValueError(f"{path_label}: outcomes[{i}] needs id")
         otype = str(raw.get("type", "transcript_contains"))
-        if otype not in ("transcript_contains", "llm_bool", "recovery", "latency", "ended_by", "goals_met", "constraint_respected"):
+        if otype not in ("transcript_contains", "llm_bool", "recovery", "latency", "ended_by", "goals_met", "constraint_respected", "backchannel_agent_continued"):
             raise ValueError(f"{path_label}: outcomes[{i}].type unsupported: {otype}")
         phrases = raw.get("phrases") or raw.get("contains_any") or []
         if isinstance(phrases, str):
@@ -468,6 +470,36 @@ def evaluate_asserts(events: list[dict[str, Any]], asserts: AssertSpec | None) -
             checks.append(_eval_ended_by_outcome(oc, events))
         elif oc.type == "constraint_respected":
             checks.append(_eval_constraint_respected(oc, events, pending_llm))
+        elif oc.type == "backchannel_agent_continued":
+            bc_cues = [
+                int(e.get("ts_mono_ms") or 0)
+                for e in events
+                if e.get("kind") == "sim.script.cue"
+                and (e.get("spec") or {}).get("class") in ("backchannel",)
+            ]
+            if not bc_cues:
+                checks.append({
+                    "outcome_id": oc.id, "type": oc.type, "pass": True,
+                    "skipped": True, "reason": "no backchannel cues in run",
+                })
+            else:
+                first_bc = bc_cues[0]
+                agent_after = [t for t in agent_final_ms if t > first_bc + 100]
+                continued = len(agent_after) >= 1
+                tool_near = sum(
+                    1 for e in events
+                    if (e.get("kind") in ("tool.start", "sim.script.cue"))
+                    and (int(e.get("ts_mono_ms") or 0) >= first_bc - 2000)
+                    and (int(e.get("ts_mono_ms") or 0) <= first_bc + 5000)
+                )
+                if not continued:
+                    pass  # will fail below — agent stopped talking after backchannel
+                elif tool_near > 5:
+                    continued = False
+                checks.append({
+                    "outcome_id": oc.id, "type": oc.type, "pass": continued,
+                    "continued": continued, "agent_finals_after": len(agent_after),
+                })
         elif oc.type == "goals_met":
             pending_llm.append({"id": oc.id, "prompt": oc.prompt or oc.id, "goals_met": True,
                                 "min_goals": oc.min_goals, "goals": list(oc.goals)})
