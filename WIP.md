@@ -106,7 +106,7 @@ Ranked by ROI. Feature **and** logic gaps from research.
 | **P1.E** | **outbound_sim_callee reliability** | Ops | DID hairpin (`docs/PROBLEM.md`) | Preflight + DID/dispatch recipe; T6 sip-to-ai only if needed | P1.E |
 | **P1.I** | **Tool required_order ledger** | Assert | Hamming workflow | Assert tools in order (not only min_count); fail on wrong sequence | Workflow |
 | **P1.J** | **scenario-from-run extract quality** | Logic | Fail→golden flywheel | Prefer goals + constraints + 1 Behavior barge from markers; **not** transcript dump into brief | C6 / L7 |
-| **P1.K** | **Interruption rate timer** | Feature | Coval None/Low/Med/High (~never/90s/45s/30s) | Compile recurring barge steps from rate; optional speech_conditions | C7 / F10 |
+| **P1.K** | **Interruption rate timer** | ✅ done (#25) | Coval None/Low/Med/High (~never/90s/45s/30s) | `speech_conditions.interruption_rate` → parallel `InterruptRateRunner` (fires only while agent is active speaker; `interruption_*` overrides; disabled by silent_mode) | C7 / F10 |
 | **P1.L** | **Event taxonomy polish** | Events + web | Hamming interruption lifecycle | `interruption.recovered`, class on cues, behavior_summary by class; web chips | Events |
 
 ### P2 — Production-adjacent (defer unless a target needs it)

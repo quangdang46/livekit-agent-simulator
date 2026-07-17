@@ -33,6 +33,7 @@ from .livekit.observer import Observer
 from .livekit.sim_leg import SimLegContext, SimLegError, SimLegHandle, sim_leg_factory
 from .logging.event_writer import EventWriter
 from .logging.sqlite_store import RunStore
+from .interrupt_rate import InterruptRateRunner, parse_interrupt_rate
 from .preflight import run_preflight
 from .plugins.loader import ensure_plugins_loaded
 from .scenario import Scenario, SimulatorSpec, find_scenario, validate_telephony_for_mode
@@ -325,6 +326,21 @@ async def run_scenario_instance(
                 bridge.bind_script_pending(script_runner.has_pending_steps)
                 script_task = asyncio.create_task(script_runner.run(), name="script-runner")
 
+            # Parallel interruption-rate policy (#25) — additive to authored Script.
+            rate_runner: InterruptRateRunner | None = None
+            rate_task: asyncio.Task | None = None
+            rate_spec = parse_interrupt_rate(scenario.persona)
+            if rate_spec is not None:
+                rate_dir = scenario.path.parent if scenario.path.parent.exists() else cfg.scenarios_dir
+                rate_runner = InterruptRateRunner(
+                    rate_spec,
+                    observer,
+                    bridge,
+                    writer,
+                    scenario_dir=rate_dir,
+                )
+                rate_task = asyncio.create_task(rate_runner.run(), name="interrupt-rate")
+
             bridge_task = asyncio.create_task(bridge.run(), name="gemini-bridge")
             nudge_task: asyncio.Task | None = None
             if run.first_speaker == "agent" and not scenario.script_steps and not _silent:
@@ -351,6 +367,11 @@ async def run_scenario_instance(
                 if script_task is not None:
                     script_task.cancel()
                     await asyncio.gather(script_task, return_exceptions=True)
+                if rate_runner is not None:
+                    rate_runner.stop()
+                if rate_task is not None:
+                    rate_task.cancel()
+                    await asyncio.gather(rate_task, return_exceptions=True)
                 bridge.stop()
                 await asyncio.wait_for(asyncio.shield(_settle(bridge_task)), timeout=10)
 

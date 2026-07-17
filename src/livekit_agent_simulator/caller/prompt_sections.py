@@ -172,11 +172,17 @@ class SpeechConditionsSection:
         if not sc:
             return []
         bits: list[str] = []
-        if sc.get("barge_policy") or sc.get("interruption_rate"):
+        if sc.get("barge_policy"):
             bits.append(
-                "timed interruptions may be injected by the simulator "
-                f"(barge_policy={sc.get('barge_policy') or 'n/a'}, "
-                f"interruption_rate={sc.get('interruption_rate') or 'n/a'})"
+                "a timed interruption may be injected by the simulator "
+                f"(barge_policy={sc.get('barge_policy')})"
+            )
+        rate = str(sc.get("interruption_rate") or sc.get("interrupt_rate") or "").strip().lower()
+        if rate and rate not in ("none", "off", "0", "false"):
+            bits.append(
+                "the simulator will periodically cut you in while the assistant is "
+                f"talking (interruption_rate={rate}); those cut-ins are simulator-owned "
+                "audio — do not invent extra barge-ins yourself"
             )
         if sc.get("silent_mode") is True or str(sc.get("silent_mode") or "").lower() in (
             "1", "true", "yes", "on", "silent",

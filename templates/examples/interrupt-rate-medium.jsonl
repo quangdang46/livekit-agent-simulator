@@ -1,0 +1,7 @@
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"interrupt-rate-medium","locale":"en-US","tags":["interruption","stress","example"]}}
+// Interruption rate (#25): parallel timer barges while the agent is speaking, at most once per interval.
+// medium = every 45 s; interruption_interval_ms (>= 5000) pins a shorter interval for short smoke calls.
+// Cut-ins emit sim.script.cue + interruption (class=correction) — same as Script barges, so recovery asserts apply.
+{"kind":"Persona","spec":{"name":"Impatient caller","brief":"You ask one simple question but keep cutting the assistant off mid-sentence.","goals":["Hear the agent greeting","Ask one short request (hours or pricing)","Let the agent finish after your interruptions","End politely"],"traits":["impatient"],"speech_conditions":{"interruption_rate":"medium","interruption_interval_ms":12000,"interruption_say":"Sorry — quick question —"}}}
+{"kind":"Execute","spec":{"max_turns":10,"timeout_s":120,"first_speaker":"agent"}}
+{"kind":"Assert","spec":{"outcomes":[{"id":"recovers","type":"recovery","min_agent_finals_after_barge_in":1}]}}
