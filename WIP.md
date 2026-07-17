@@ -123,7 +123,7 @@ Ranked by ROI. Feature **and** logic gaps from research.
 | **P2.G** | Multi-party handoff | After P2.A |
 | **P2.H** | Text-fast mode | Cheap loop before full voice |
 | **P2.I** | Language / voice **scenario matrix** | Manual ⚠️ today — suite recipe, not one-off config |
-| **P2.J** | Hold-music timeout hang | Coval advanced disconnect |
+| **P2.J** | Hold-music timeout hang — ✅ done (#29): `Execute.spec.hold_music_timeout_s` (5–300 s, Persona alias) → sim hang-up on agent dead air, reason `hold_music_timeout` | Coval advanced disconnect |
 | **P2.K** | Owner / source_pattern / risk metadata | Hamming tests-as-code fields on Scenario (tags or optional fields) |
 
 ### P0 residual polish (optional)

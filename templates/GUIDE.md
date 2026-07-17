@@ -169,7 +169,7 @@ lks scenario-init my-case --root /path/to/target
 | `Persona` | yes | Character: `brief`, `goals`, `traits`, **`constraints`**, **`speech_conditions`** |
 | `Context` | no | `notes` + optional opaque `fixtures` hints |
 | `Simulator` | no | Defaults; overridden by Execute |
-| `Execute` | recommended | `max_turns`, `timeout_s`, `first_speaker` |
+| `Execute` | recommended | `max_turns`, `timeout_s`, `first_speaker`, `hold_music_timeout_s` |
 | `Dispatch` | no | Per-scenario opaque metadata JSON string |
 | `Caller` | no | Transport mode: `webrtc_sim` (default) · `inbound_sip` · `outbound_human_pickup` · `outbound_sim_callee` · `agent_dials` |
 | `Telephony` | no if WebRTC | SIP dial params: `call_to` / `dial_in` / `sip_trunk_id` / `prepare_ms` (overrides config) |
@@ -178,6 +178,18 @@ lks scenario-init my-case --root /path/to/target
 | `Assert` | no | tools / transcript / **`sip`** / **`tool_order`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, **`goals_met`**, **`constraint_respected`**, `llm_bool`) |
 | `Plugins` | no | Load local verify modules — see **Verify plugins** below |
 | `PassCriteria` | no | Soft LLM judge rubric — flat `criteria[]` **or** `judges[]` + `mode` (`all` \| `majority` \| `any`) |
+
+### Hold / agent dead-air timeout (`hold_music_timeout_s`)
+
+`Execute.spec.hold_music_timeout_s` (5–300 s; Persona alias `speech_conditions.hold_music_timeout_s`, Execute wins) — after the agent has spoken at least once, if the **agent** produces no activity for N seconds the sim caller hangs up like a real human giving up on hold. Emits `sim.hold_timeout` + `sim.hang_up`, ends the run with reason `hold_music_timeout` (`ended_by: sim`). The timer resets on any agent activity and is **not** paused by scripted caller silence (agent dead air is what it measures). See example `hold-timeout-agent-stall`.
+
+Three silence concepts — do not mix them:
+
+| Concept | Who is silent | Knob | Ends the call? |
+|---|---|---|---|
+| Caller silent mode | caller (sim) | `speech_conditions.silent_mode` | no (agent side decides) |
+| Hold / dead-air timeout | agent | `Execute.spec.hold_music_timeout_s` | yes — sim hangs up (`hold_music_timeout`) |
+| Dead-call safety net | agent | `observe.silence_threshold_ms` (× 3, global) | yes — run aborts (`dead_call_silence`); skipped while an armed hold timeout is authoritative |
 
 ### Caller character (Hamming-aligned)
 
