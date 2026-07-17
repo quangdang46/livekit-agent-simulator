@@ -423,6 +423,20 @@ Full guide: https://github.com/quangdang46/livekit-agent-simulator/blob/main/doc
 | `plugins` | `list_plugins` |
 | `cues` | `list_cues` |
 | `validate` | `validate_scenario` |
+| `export` | `export_scenario` |
+| `scenario-init` | `init_scenario` |
+| `execute` | `execute_scenario` (flags: ``--name``, ``--repeat N --pass-at-k K``, ``--strict-judge``) |
+| `execute-all` | `execute_scenarios` (suite matrix + CI gate; flags: ``--repeat --pass-at-k --parallel N``, ``--strict-judge``) |
+| `execute-dict` | `execute_scenario_dict` (flag: ``--name`` / MCP ``run_name``) |
+| `scenario-from-run` | `scenario_from_run` |
+| `status` | `get_run_status` |
+| `log` | `get_run_log` |
+| `report` | `get_run_report` |
+| `compare` | `compare_runs` (optional `--baseline` hard regression gate) |
+| `runs` | `list_runs` |
+| `mcp` | *(stdio server — all tools above)* |
+
+There is **no** separate `run` command — always validate-then-run via `execute*`.
 
 ### Authoring quality gate (`validate`)
 
@@ -463,22 +477,6 @@ Common codes:
 | `exploratory` | Empty goals / barge without recovery / stress traits soft-only |
 
 Authoring quality ≠ execute hard gate (status/assert/script_verify after a run).
-
-
-| `export` | `export_scenario` |
-| `scenario-init` | `init_scenario` |
-| `execute` | `execute_scenario` (flags: ``--name``, ``--repeat N --pass-at-k K``, ``--strict-judge``) |
-| `execute-all` | `execute_scenarios` (suite matrix + CI gate; flags: ``--repeat --pass-at-k --parallel N``, ``--strict-judge``) |
-| `execute-dict` | `execute_scenario_dict` (flag: ``--name`` / MCP ``run_name``) |
-| `scenario-from-run` | `scenario_from_run` |
-| `status` | `get_run_status` |
-| `log` | `get_run_log` |
-| `report` | `get_run_report` |
-| `compare` | `compare_runs` (optional `--baseline` hard regression gate) |
-| `runs` | `list_runs` |
-| `mcp` | *(stdio server — all tools above)* |
-
-There is **no** separate `run` command — always validate-then-run via `execute*`.
 
 Golden baseline gate (CI): treat run A as baseline, fail exit `1` if candidate regresses:
 
