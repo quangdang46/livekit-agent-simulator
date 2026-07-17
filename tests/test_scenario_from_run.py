@@ -111,7 +111,8 @@ def test_draft_from_basic_run(tmp_path: Path) -> None:
     draft = build_scenario_draft_from_run(report_dir)
     assert draft["scenario_id"].startswith("from-")
     assert draft["source_run_id"] == "test-run-1234"
-    assert draft["kinds"] == ["Scenario", "Persona", "Context", "Execute", "Assert", "PassCriteria"]
+    assert draft["kinds"] == ["Scenario", "Persona", "Context", "Execute", "Script", "Assert", "PassCriteria"]
+    assert draft["stats"]["script_open"] is True
     assert "Xin chào" in draft["jsonl"]
     assert draft["stats"]["user_finals"] == 2
     assert draft["stats"]["agent_finals"] == 1
@@ -235,6 +236,8 @@ def test_barge_fail_run_gets_behavior_and_recovery_stub(tmp_path: Path) -> None:
     draft = build_scenario_draft_from_run(report_dir)
     assert draft["stats"]["behavior_stub"] is True
     assert "Behavior" in draft["kinds"]
+    assert "Script" in draft["kinds"]  # user-first open to avoid dead-air
+    assert draft["stats"]["script_open"] is True
     behavior = next(
         json.loads(s) for s in draft["jsonl"].splitlines()
         if s.strip() and not s.startswith("//") and json.loads(s).get("kind") == "Behavior"
@@ -244,6 +247,50 @@ def test_barge_fail_run_gets_behavior_and_recovery_stub(tmp_path: Path) -> None:
     assert barge["class"] == "correction"
     assert barge["after_agent_ms"] == 2400
     assert "recovered_after_barge" in draft["jsonl"]
+    script = next(
+        json.loads(s) for s in draft["jsonl"].splitlines()
+        if s.strip() and not s.startswith("//") and json.loads(s).get("kind") == "Script"
+    )
+    assert script["spec"]["steps"][0]["id"] == "open"
+    assert script["spec"]["steps"][0]["say"] == "hello"
+    assert script["spec"]["steps"][0]["require_agent_spoke_first"] is False
+
+
+def test_user_first_prefers_source_script_open(tmp_path: Path) -> None:
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir()
+    scen_file = scen_dir / "src.jsonl"
+    scen_file.write_text(
+        json.dumps({"apiVersion": "agent-sim/v1", "kind": "Scenario", "metadata": {"id": "src", "locale": "en-US"}})
+        + "\n"
+        + json.dumps({"kind": "Persona", "spec": {"name": "Sam", "brief": "b", "goals": ["g"], "constraints": [], "traits": [], "style": "s"}})
+        + "\n"
+        + json.dumps({"kind": "Script", "spec": {"steps": [{"id": "open", "trigger": "silence", "delay_ms": 2200, "say": "Hi - please run a full API lookup.", "once": True, "require_agent_spoke_first": False}]}})
+        + "\n",
+        encoding="utf-8",
+    )
+    report_dir = _write_report(
+        tmp_path,
+        meta=_meta(scenario_id="src") | {"scenario_file": str(scen_file)},
+        events=_events(user_texts=["different transcript line"], agent_texts=["hi"]),
+    )
+    draft = build_scenario_draft_from_run(report_dir)
+    script = next(
+        json.loads(s) for s in draft["jsonl"].splitlines()
+        if s.strip() and not s.startswith("//") and json.loads(s).get("kind") == "Script"
+    )
+    assert script["spec"]["steps"][0]["say"] == "Hi - please run a full API lookup."
+
+
+def test_agent_first_skips_script_open(tmp_path: Path) -> None:
+    report_dir = _write_report(
+        tmp_path,
+        meta=_meta() | {"run_spec": {"max_turns": 4, "timeout_s": 120, "first_speaker": "agent"}},
+        events=_events(user_texts=["hello"], agent_texts=["hi there"]),
+    )
+    draft = build_scenario_draft_from_run(report_dir)
+    assert draft["stats"]["script_open"] is False
+    assert "Script" not in draft["kinds"]
 
 
 def test_noise_cue_becomes_false_interrupt(tmp_path: Path) -> None:
@@ -315,5 +362,6 @@ def test_draft_round_trips_through_scenario_parser(tmp_path: Path) -> None:
     out.write_text(draft["jsonl"], encoding="utf-8")
     scenario = parse_scenario(out)
     assert scenario.id == "promoted-rt"
-    # Behavior stub compiles into a barge ScriptStep
+    # Behavior stub compiles into a barge ScriptStep; user-first open is present
+    assert any(s.id == "open" for s in scenario.script_steps)
     assert any(getattr(s, "barge_in", False) for s in scenario.script_steps)

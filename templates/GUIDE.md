@@ -343,6 +343,9 @@ The draft recovers Persona, Dispatch, Execute spec, and run stats from the sourc
 - **Behavior stub**: if the run had a sim cut-in, one `Behavior` barge/noise/backchannel
   entry is reconstructed from `sim.script.cue` markers (say, class, `after_agent_ms` from
   observed agent-active time), so a barge-fail replays deterministically.
+- **Script open** (when `first_speaker=user`): a minimal silence-triggered open line is
+  added (source Script open preferred, else first user final). Without it, Behavior
+  barge alone suppresses the Gemini speak-first bootstrap and dead-airs the call.
 - **Asserts**: basic transcript Assert + recovery Assert (when barges present).
 - ``Context.notes`` carries the source run_id, judge info, and metric hints.
 

@@ -10,6 +10,9 @@ Extract quality rules (issue #34):
   intent-phrased from the first user finals) + ``constraints[]``.
 - One ``Behavior`` barge/noise stub is reconstructed from ``sim.script.cue``
   markers in events.jsonl so a barge-fail replays deterministically.
+- When ``first_speaker=user``, also emit a minimal Script **open** line (source
+  Script open preferred, else first user final). Behavior barge-only would
+  otherwise suppress the Gemini bootstrap and dead-air the call.
 - Transcript sample + metrics hints live in ``Context.notes`` (author-only).
 - No full Script reverse-engineer. Humans/agents must review before CI promote.
 """
@@ -209,6 +212,80 @@ def _behavior_from_events(events: list[dict[str, Any]]) -> dict[str, Any] | None
     return None
 
 
+def _script_open_say_from_source(scenario_file: str | None) -> str | None:
+    """First explicit Script speak open from the source scenario, if any."""
+    if not scenario_file:
+        return None
+    path = Path(scenario_file)
+    if not path.is_file():
+        return None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("//"):
+            continue
+        try:
+            obj = json.loads(s)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("kind") != "Script":
+            continue
+        steps = (obj.get("spec") or {}).get("steps") or []
+        if not isinstance(steps, list):
+            return None
+        for raw in steps:
+            if not isinstance(raw, dict):
+                continue
+            action = str(raw.get("action") or "speak").strip().lower()
+            if action not in ("speak", ""):
+                continue
+            say = str(raw.get("say") or "").strip()
+            if not say or say.startswith("["):
+                continue
+            # Prefer opens that do not require the agent to speak first.
+            if raw.get("require_agent_spoke_first") is True:
+                continue
+            if bool(raw.get("barge_in")):
+                continue
+            return _redact(say)[:200]
+        return None
+    return None
+
+
+def _script_open_for_user_first(
+    *,
+    first_speaker: str,
+    user_texts: list[str],
+    scenario_file: str | None,
+) -> dict[str, Any] | None:
+    """Minimal Script open so user-first + Behavior barge does not dead-air.
+
+    ``DefaultCallerPolicy`` skips the speak-first bootstrap whenever any
+    ``script_steps`` exist. Behavior barge compiles into script_steps, so a
+    draft with only a Behavior cut-in would tell Gemini to wait for a cue that
+    never fires (agent also waits for the caller). Emit one silence-triggered
+    open line to break that deadlock.
+    """
+    if first_speaker != "user":
+        return None
+    say = _script_open_say_from_source(scenario_file)
+    if not say and user_texts:
+        say = _redact(user_texts[0])[:200]
+    if not say:
+        say = "Hi — I'm calling about my request."
+    return {
+        "steps": [
+            {
+                "id": "open",
+                "trigger": "silence",
+                "delay_ms": 2200,
+                "say": say,
+                "once": True,
+                "require_agent_spoke_first": False,
+            }
+        ]
+    }
+
+
 def build_scenario_draft_from_run(
     report_dir: Path | str,
     *,
@@ -336,6 +413,16 @@ def build_scenario_draft_from_run(
 
     behavior_spec = _behavior_from_events(events)
     has_barge_stub = bool(behavior_spec and behavior_spec.get("barge_ins"))
+    script_open = _script_open_for_user_first(
+        first_speaker=first_speaker,
+        user_texts=user_texts,
+        scenario_file=scenario_file_s,
+    )
+    if script_open:
+        warnings.append(
+            "Script open added for first_speaker=user (avoids dead-air when Behavior "
+            "barge suppresses Gemini bootstrap). Review the open line before CI."
+        )
 
     outcomes: list[dict[str, Any]] = []
     if agent_texts:
@@ -492,6 +579,14 @@ def build_scenario_draft_from_run(
                 separators=(",", ":"),
             )
         )
+    if script_open:
+        lines.append(
+            json.dumps(
+                {"kind": "Script", "spec": script_open},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
     if behavior_spec:
         lines.append(
             json.dumps(
@@ -535,11 +630,13 @@ def build_scenario_draft_from_run(
         "notes": notes,
         "latency_hint": latency_hint,
         "behavior": behavior_spec,
+        "script_open": script_open,
         "stats": {
             "user_finals": len(user_texts),
             "agent_finals": len(agent_texts),
             "barge_count": barge_count,
             "behavior_stub": bool(behavior_spec),
+            "script_open": bool(script_open),
             "duration_ms": summary.get("duration_ms"),
             "status": status,
         },
