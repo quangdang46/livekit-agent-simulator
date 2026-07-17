@@ -82,6 +82,28 @@ class ExecuteSpec:
     max_turns: int | None = None
     timeout_s: int | None = None
     first_speaker: str | None = None
+    # Hold / agent dead-air timeout (#29): sim hangs up after N s without agent
+    # activity (agent spoke at least once first). None = off.
+    hold_music_timeout_s: float | None = None
+
+
+HOLD_TIMEOUT_MIN_S = 5.0
+HOLD_TIMEOUT_MAX_S = 300.0
+
+
+def _parse_hold_timeout(raw: Any, where: str) -> float | None:
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{where}: hold_music_timeout_s must be a number") from e
+    if not HOLD_TIMEOUT_MIN_S <= value <= HOLD_TIMEOUT_MAX_S:
+        raise ValueError(
+            f"{where}: hold_music_timeout_s must be between "
+            f"{HOLD_TIMEOUT_MIN_S:g} and {HOLD_TIMEOUT_MAX_S:g} seconds (got {value:g})"
+        )
+    return value
 
 
 @dataclass
@@ -170,6 +192,22 @@ class Scenario:
             first_speaker=ex.first_speaker if ex.first_speaker is not None else self.simulator.first_speaker,
         )
 
+    def hold_music_timeout_s(self) -> float | None:
+        """Effective hold / agent dead-air timeout (#29).
+
+        ``Execute.spec.hold_music_timeout_s`` wins; Persona alias
+        ``speech_conditions.hold_music_timeout_s`` fills the gap.
+        ``None`` = disabled (only the global ``dead_call_silence`` net applies).
+        """
+        if self.execute is not None and self.execute.hold_music_timeout_s is not None:
+            return self.execute.hold_music_timeout_s
+        sc = self.persona.get("speech_conditions")
+        if isinstance(sc, dict):
+            return _parse_hold_timeout(
+                sc.get("hold_music_timeout_s"), "Persona.speech_conditions"
+            )
+        return None
+
     def dispatch_metadata(self, config_default: str | None = None) -> str | None:
         """Scenario Dispatch.metadata wins over config livekit.dispatch_metadata."""
         if self.dispatch and self.dispatch.metadata:
@@ -196,7 +234,9 @@ class Scenario:
                 "max_turns": self.execute.max_turns,
                 "timeout_s": self.execute.timeout_s,
                 "first_speaker": self.execute.first_speaker,
+                "hold_music_timeout_s": self.execute.hold_music_timeout_s,
             },
+            "hold_music_timeout_s": self.hold_music_timeout_s(),
             "dispatch": None
             if self.dispatch is None
             else {"metadata_set": bool(self.dispatch.metadata)},
@@ -327,10 +367,17 @@ def parse_scenario(path: Path | str) -> Scenario:
                 first_speaker=str(spec.get("first_speaker", "agent")),
             )
         elif kind == "Execute":
+            try:
+                hold = _parse_hold_timeout(
+                    spec.get("hold_music_timeout_s"), "Execute.spec"
+                )
+            except ValueError as e:
+                raise ScenarioError(f"{path}:{line_no}: {e}") from e
             scenario.execute = ExecuteSpec(
                 max_turns=int(spec["max_turns"]) if spec.get("max_turns") is not None else None,
                 timeout_s=int(spec["timeout_s"]) if spec.get("timeout_s") is not None else None,
                 first_speaker=str(spec["first_speaker"]) if spec.get("first_speaker") else None,
+                hold_music_timeout_s=hold,
             )
         elif kind == "Dispatch":
             meta = spec.get("metadata")
@@ -473,6 +520,12 @@ def parse_scenario(path: Path | str) -> Scenario:
         has_dial_in = bool(scenario.telephony and scenario.telephony.dial_in)
         if not has_dial_in:
             pass  # config.telephony.dial_in may supply at run time
+
+    # Hold timeout (#29): Persona alias validates at parse (Execute already did).
+    try:
+        scenario.hold_music_timeout_s()
+    except ValueError as e:
+        raise ScenarioError(f"{path}: {e}") from e
 
     # Hamming-style: compile speech_conditions + Behavior into Script (explicit Script wins by id).
     try:

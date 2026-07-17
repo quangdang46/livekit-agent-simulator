@@ -366,6 +366,11 @@ def apply_caller_behavior(
     path_label: str = "scenario",
 ) -> tuple[list[ScriptStep], ScriptVerifySpec | None]:
     """Compile persona speech_conditions + Behavior and merge with explicit Script."""
+    # Deferred import (interrupt_rate imports this module). Validate-only here:
+    # the rate policy runs as a parallel runner, not as compiled ScriptSteps.
+    from .interrupt_rate import parse_interrupt_rate
+
+    parse_interrupt_rate(persona)
     silent = silent_mode_enabled(persona)
     compiled: list[ScriptStep] = []
     compiled.extend(compile_from_speech_conditions(persona))

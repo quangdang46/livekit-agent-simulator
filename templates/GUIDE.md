@@ -169,7 +169,7 @@ lks scenario-init my-case --root /path/to/target
 | `Persona` | yes | Character: `brief`, `goals`, `traits`, **`constraints`**, **`speech_conditions`** |
 | `Context` | no | `notes` + optional opaque `fixtures` hints |
 | `Simulator` | no | Defaults; overridden by Execute |
-| `Execute` | recommended | `max_turns`, `timeout_s`, `first_speaker` |
+| `Execute` | recommended | `max_turns`, `timeout_s`, `first_speaker`, `hold_music_timeout_s` |
 | `Dispatch` | no | Per-scenario opaque metadata JSON string |
 | `Caller` | no | Transport mode: `webrtc_sim` (default) · `inbound_sip` · `outbound_human_pickup` · `outbound_sim_callee` · `agent_dials` |
 | `Telephony` | no if WebRTC | SIP dial params: `call_to` / `dial_in` / `sip_trunk_id` / `prepare_ms` (overrides config) |
@@ -178,6 +178,18 @@ lks scenario-init my-case --root /path/to/target
 | `Assert` | no | tools / transcript / **`sip`** / **`tool_order`** / outcomes (`transcript_contains`, **`recovery`**, **`latency`**, **`ended_by`**, **`goals_met`**, **`constraint_respected`**, `llm_bool`) |
 | `Plugins` | no | Load local verify modules — see **Verify plugins** below |
 | `PassCriteria` | no | Soft LLM judge rubric — flat `criteria[]` **or** `judges[]` + `mode` (`all` \| `majority` \| `any`) |
+
+### Hold / agent dead-air timeout (`hold_music_timeout_s`)
+
+`Execute.spec.hold_music_timeout_s` (5–300 s; Persona alias `speech_conditions.hold_music_timeout_s`, Execute wins) — after the agent has spoken at least once, if the **agent** produces no activity for N seconds the sim caller hangs up like a real human giving up on hold. Emits `sim.hold_timeout` + `sim.hang_up`, ends the run with reason `hold_music_timeout` (`ended_by: sim`). The timer resets on any agent activity and is **not** paused by scripted caller silence (agent dead air is what it measures). See example `hold-timeout-agent-stall`.
+
+Three silence concepts — do not mix them:
+
+| Concept | Who is silent | Knob | Ends the call? |
+|---|---|---|---|
+| Caller silent mode | caller (sim) | `speech_conditions.silent_mode` | no (agent side decides) |
+| Hold / dead-air timeout | agent | `Execute.spec.hold_music_timeout_s` | yes — sim hangs up (`hold_music_timeout`) |
+| Dead-call safety net | agent | `observe.silence_threshold_ms` (× 3, global) | yes — run aborts (`dead_call_silence`); skipped while an armed hold timeout is authoritative |
 
 ### Caller character (Hamming-aligned)
 
@@ -188,10 +200,10 @@ lks scenario-init my-case --root /path/to/target
 - **speech_conditions** → auto barge / ambient / silence Script if you skip hand-written Script  
   - `barge_policy: mid_agent_turn` + optional `barge_asset: builtin:voice.barge_short` (speech WAV; `with_blip` defaults off for `voice.*`)  
   - `noise_gain` / `barge_gain` (`0.0`–`1.0`) scale auto-compiled ambient / barge cues (also per-step Script `gain` / `volume`)
-  - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`, default `1.0`; aliases `voice_volume` / `volume`) scales **speech** PCM after Gemini Live (freestyle + inject). Noise beds are unchanged. Gemini Live has **no** native volume/speed API.
+  - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`, default `1.0`; aliases `voice_volume` / `volume`) scales **speech** PCM after Gemini Live (freestyle + inject). Noise beds are unchanged. Gemini Live has **no** native volume/speed API (see example `quiet-caller-confirm`).
   - **Voice speed:** not supported on Gemini Live (`SpeechConfig` is voice name + language only). Do not ship a fake `voice_speed` flag; use soft traits or pre-recorded Script WAVs. Track upstream Live `speech_rate` if Google adds it.
-  - **Quiet caller (STT stress):** `speech_conditions.voice_gain` (`0.0`–`1.0`) scales speech PCM after Gemini Live (see example `quiet-caller-confirm`).
   - **Silent mode (dead air):** `speech_conditions.silent_mode: true` — caller stays mute for the whole call (Coval Silent Mode). Disables freestyle, agent-greeted nudge, auto barge/noise; hang_up is silent. Use for reprompt/timeout QA.
+  - **Interruption rate (recurring cut-ins):** `speech_conditions.interruption_rate: none|low|medium|high` — parallel timer policy that barges while the agent is speaking, at most once per interval (`low`=90 s, `medium`=45 s, `high`=30 s). Fires only while the agent is the active speaker (a due interval waits for the next agent turn). Emits the same `sim.script.cue` / `interruption` events as Script barges (`class` defaults to `correction`). Overrides: `interruption_say`, `interruption_asset` (→ `room_pcm`), `interruption_class`, `interruption_gain`, `interruption_with_blip`, `interruption_min_agent_active_ms`, and `interruption_interval_ms` (≥ 5000; pins the interval for short smoke calls). Disabled by `silent_mode`. Distinct from one-shot `barge_policy` and authored `Behavior.barge_ins[]` (see example `interrupt-rate-medium`).
   - **Continuous ambient bed:** `noise_when: "background"` (or Behavior/Script `"loop": true`) re-queues `room_pcm` noise until hang-up (parallel under speech). One-shot bursts stay default (`once` / no loop).  
 - **Behavior** kind → explicit barge/silence/ambient policies; set Script step `class` (`correction` \| `backchannel` \| `noise` \| `dtmf` \| `silence` \| `escalate`) so recovery metrics and web chips stay honest  
 - **Assert** `outcomes` type **`recovery`** → agent re-engages after barge (`min_agent_finals_after_barge_in`, optional `max_ms_after_barge_to_agent_final`)

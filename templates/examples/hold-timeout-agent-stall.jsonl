@@ -1,0 +1,8 @@
+{"apiVersion":"agent-sim/v1","kind":"Scenario","metadata":{"id":"hold-timeout-agent-stall","locale":"en-US","tags":["hold","dead-air","example"]}}
+// Hold / agent dead-air timeout (#29): caller gives up after N s without agent activity.
+// Timer arms after the agent's first speech and resets on agent activity — distinct from
+// caller silent_mode (caller mute) and the global dead_call_silence safety net (3x observe threshold).
+// Run ends with reason=hold_music_timeout and ended_by=sim.
+{"kind":"Persona","spec":{"name":"Waiting caller","brief":"You asked one question and are now stuck waiting while the agent goes quiet.","goals":["Hear the agent greeting","Ask one short request (hours or pricing)","Hang on briefly if the agent goes quiet, then give up"],"traits":["patient"],"speech_conditions":{"silent_mode":true}}}
+{"kind":"Execute","spec":{"max_turns":8,"timeout_s":120,"first_speaker":"agent","hold_music_timeout_s":20}}
+{"kind":"Assert","spec":{"outcomes":[{"id":"caller_gave_up","type":"ended_by","who":"sim"}]}}

@@ -8,7 +8,8 @@ End conditions (first one wins):
     - scenario max_turns reached (after the agent replied in the final turn)
     - scenario timeout_s exceeded
     - agent participant disconnected / room closed
-    - dead call: no agent activity for 3 × silence_threshold_ms
+    - hold timeout: agent dead air >= Execute.spec.hold_music_timeout_s → sim hangs up (#29)
+    - dead call: no agent activity for 3 × silence_threshold_ms (safety net)
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from .livekit.observer import Observer
 from .livekit.sim_leg import SimLegContext, SimLegError, SimLegHandle, sim_leg_factory
 from .logging.event_writer import EventWriter
 from .logging.sqlite_store import RunStore
+from .interrupt_rate import InterruptRateRunner, parse_interrupt_rate
 from .preflight import run_preflight
 from .plugins.loader import ensure_plugins_loaded
 from .scenario import Scenario, SimulatorSpec, find_scenario, validate_telephony_for_mode
@@ -325,6 +327,21 @@ async def run_scenario_instance(
                 bridge.bind_script_pending(script_runner.has_pending_steps)
                 script_task = asyncio.create_task(script_runner.run(), name="script-runner")
 
+            # Parallel interruption-rate policy (#25) — additive to authored Script.
+            rate_runner: InterruptRateRunner | None = None
+            rate_task: asyncio.Task | None = None
+            rate_spec = parse_interrupt_rate(scenario.persona)
+            if rate_spec is not None:
+                rate_dir = scenario.path.parent if scenario.path.parent.exists() else cfg.scenarios_dir
+                rate_runner = InterruptRateRunner(
+                    rate_spec,
+                    observer,
+                    bridge,
+                    writer,
+                    scenario_dir=rate_dir,
+                )
+                rate_task = asyncio.create_task(rate_runner.run(), name="interrupt-rate")
+
             bridge_task = asyncio.create_task(bridge.run(), name="gemini-bridge")
             nudge_task: asyncio.Task | None = None
             if run.first_speaker == "agent" and not scenario.script_steps and not _silent:
@@ -351,6 +368,11 @@ async def run_scenario_instance(
                 if script_task is not None:
                     script_task.cancel()
                     await asyncio.gather(script_task, return_exceptions=True)
+                if rate_runner is not None:
+                    rate_runner.stop()
+                if rate_task is not None:
+                    rate_task.cancel()
+                    await asyncio.gather(rate_task, return_exceptions=True)
                 bridge.stop()
                 await asyncio.wait_for(asyncio.shield(_settle(bridge_task)), timeout=10)
 
@@ -632,6 +654,11 @@ async def _conversation_loop(
     """Poll every 250 ms until one end condition fires. Returns the reason."""
     deadline = time.monotonic() + run.timeout_s
     silence_reported_at: float | None = None
+    # Hold / agent dead-air timeout (#29): caller gives up after N s of agent
+    # inactivity (agent must have spoken once). Timer resets on agent activity
+    # via observer.last_agent_activity_mono. Distinct from caller silent_mode
+    # (caller mute) and from the global dead_call_silence safety net below.
+    hold_timeout_s = scenario.hold_music_timeout_s()
 
     while True:
         if bridge.end_call.is_set():
@@ -653,6 +680,25 @@ async def _conversation_loop(
                 scripted_hold = False
 
         silent_for = time.monotonic() - observer.last_agent_activity_mono
+
+        # Hold timeout arms only after the agent has spoken; scripted user
+        # silence does NOT pause it (agent dead air is what we are measuring).
+        hold_armed = hold_timeout_s is not None and observer.agent_has_spoken
+        if hold_armed and silent_for >= hold_timeout_s:
+            writer.emit(
+                "sim.hold_timeout",
+                spec={
+                    "timeout_s": hold_timeout_s,
+                    "agent_idle_ms": int(silent_for * 1000),
+                    "note": "Caller gave up waiting on agent dead air (hold_music_timeout_s)",
+                },
+                source="sim",
+                include_dialogue=False,
+            )
+            # Real hang-up: clears noise bed, emits sim.hang_up (ended_by=sim).
+            bridge.sim_hang_up()
+            return "hold_music_timeout"
+
         if silent_for >= cfg_silence_s:
             if silence_reported_at is None or (time.monotonic() - silence_reported_at) >= cfg_silence_s:
                 writer.emit(
@@ -664,7 +710,9 @@ async def _conversation_loop(
                     source="observer",
                 )
                 silence_reported_at = time.monotonic()
-            if silent_for >= cfg_silence_s * 3 and not scripted_hold:
+            # When the author set a hold timeout and it is armed, the dead-call
+            # net must not preempt it (a longer hold timeout stays authoritative).
+            if silent_for >= cfg_silence_s * 3 and not scripted_hold and not hold_armed:
                 return "dead_call_silence"
         else:
             silence_reported_at = None
