@@ -21,6 +21,38 @@ class VerifyPlugin(Protocol):
 
 SetupFn = Callable[[], None]
 
+BeforeRunHook = Callable[["BeforeRunContext"], None]
+AfterRunHook = Callable[["AfterRunContext"], None]
+
+
+@dataclass(frozen=True)
+class BeforeRunContext:
+    """Context passed to before_run hooks — scenario loaded, about to connect."""
+
+    scenario: Scenario
+    project_root: Path
+    run_id: str
+    run_name: str | None
+    meta: dict[str, Any]
+    dispatch_metadata: dict[str, Any] | None
+    options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AfterRunContext:
+    """Context passed to after_run hooks — run finished (done or failed)."""
+
+    scenario: Scenario
+    project_root: Path
+    run_id: str
+    run_name: str | None
+    report_dir: Path
+    status: str
+    summary: dict[str, Any]
+    events: list[dict[str, Any]]
+    verdict: dict[str, Any] | None
+    options: dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass(frozen=True)
 class VerifyContext:

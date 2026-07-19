@@ -7,10 +7,16 @@ __version__ = "0.1.0"
 from . import ops
 from .config import ConfigError, SimConfig, load_config
 from .plugins import (
+    AfterRunContext,
+    BeforeRunContext,
     VerifyContext,
     ensure_plugins_loaded,
     get_verify,
+    list_after_run_hooks,
+    list_before_run_hooks,
     list_verify_plugins,
+    register_after_run,
+    register_before_run,
     register_setup,
     register_verify,
     verify_plugin,
@@ -21,6 +27,8 @@ from .script import ScriptStep, ScriptVerifySpec, evaluate_script_log
 
 __all__ = [
     "__version__",
+    "AfterRunContext",
+    "BeforeRunContext",
     "ConfigError",
     "Scenario",
     "ScenarioError",
@@ -36,6 +44,8 @@ __all__ = [
     "load_config",
     "ops",
     "parse_scenario",
+    "register_after_run",
+    "register_before_run",
     "register_setup",
     "register_verify",
     "scenario_from_dict",

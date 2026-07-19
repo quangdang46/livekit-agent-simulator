@@ -4,11 +4,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .api import VerifyContext, VerifyResult
+from .api import (
+    AfterRunContext,
+    AfterRunHook,
+    BeforeRunContext,
+    BeforeRunHook,
+    VerifyContext,
+    VerifyResult,
+)
 from .loader import ENTRY_POINT_GROUP, ensure_plugins_loaded, plugins_dir
 from .registry import (
     get_verify,
+    list_after_run_hooks,
+    list_before_run_hooks,
     list_verify_plugins,
+    register_after_run,
+    register_before_run,
     register_setup,
     register_verify,
     reset_for_tests,
@@ -28,13 +39,21 @@ def verify_plugin(name: str):
 
 
 __all__ = [
+    "AfterRunContext",
+    "AfterRunHook",
+    "BeforeRunContext",
+    "BeforeRunHook",
     "ENTRY_POINT_GROUP",
     "VerifyContext",
     "VerifyResult",
     "ensure_plugins_loaded",
     "get_verify",
+    "list_after_run_hooks",
+    "list_before_run_hooks",
     "list_verify_plugins",
     "plugins_dir",
+    "register_after_run",
+    "register_before_run",
     "register_setup",
     "register_verify",
     "reset_for_tests",

@@ -1,14 +1,23 @@
-"""In-process plugin registry for verify hooks."""
+"""In-process plugin registry for verify hooks and lifecycle callbacks."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .api import SetupFn, VerifyPlugin
+    from .api import (
+        AfterRunContext,
+        AfterRunHook,
+        BeforeRunContext,
+        BeforeRunHook,
+        SetupFn,
+        VerifyPlugin,
+    )
 
 _verify: dict[str, VerifyPlugin] = {}
 _setup_fns: list[SetupFn] = []
+_before_run: list[BeforeRunHook] = []
+_after_run: list[AfterRunHook] = []
 _loaded_keys: set[str] = set()
 
 
@@ -40,6 +49,36 @@ def run_setup_hooks() -> None:
         fn()
 
 
+def register_before_run(fn: BeforeRunHook) -> BeforeRunHook:
+    """Register a hook called after prepare, before SimLeg connects."""
+    _before_run.append(fn)
+    return fn
+
+
+def list_before_run_hooks() -> list[BeforeRunHook]:
+    return list(_before_run)
+
+
+def run_before_run_hooks(ctx: BeforeRunContext) -> None:
+    for fn in _before_run:
+        fn(ctx)
+
+
+def register_after_run(fn: AfterRunHook) -> AfterRunHook:
+    """Register a hook called after run finishes (done or failed)."""
+    _after_run.append(fn)
+    return fn
+
+
+def list_after_run_hooks() -> list[AfterRunHook]:
+    return list(_after_run)
+
+
+def run_after_run_hooks(ctx: AfterRunContext) -> None:
+    for fn in _after_run:
+        fn(ctx)
+
+
 def mark_loaded(key: str) -> bool:
     """Return False if this load key was already processed."""
     if key in _loaded_keys:
@@ -51,4 +90,6 @@ def mark_loaded(key: str) -> bool:
 def reset_for_tests() -> None:
     _verify.clear()
     _setup_fns.clear()
+    _before_run.clear()
+    _after_run.clear()
     _loaded_keys.clear()

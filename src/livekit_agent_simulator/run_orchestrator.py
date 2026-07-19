@@ -37,6 +37,8 @@ from .logging.sqlite_store import RunStore
 from .interrupt_rate import InterruptRateRunner, parse_interrupt_rate
 from .preflight import run_preflight
 from .plugins.loader import ensure_plugins_loaded
+from .plugins import registry as plugin_registry
+from .plugins.api import AfterRunContext, BeforeRunContext
 from .scenario import Scenario, SimulatorSpec, find_scenario, validate_telephony_for_mode
 from .script import ScriptRunner, build_caller_behavior_summary, evaluate_script_log
 
@@ -182,6 +184,19 @@ async def run_scenario_instance(
         "config_snapshot": config_snapshot(cfg),
         "plugins_loaded": plugin_load,
     }
+
+    # ── Phase 1b: before_run hooks (plugins can enrich meta, set up external resources) ──
+    plugin_registry.run_before_run_hooks(
+        BeforeRunContext(
+            scenario=scenario,
+            project_root=Path(cfg.project_root),
+            run_id=run_id,
+            run_name=run_name,
+            meta=meta,
+            dispatch_metadata=dispatch_metadata,
+            options=dict(scenario.script_verify.plugin_options) if scenario.script_verify else {},
+        ),
+    )
 
     status = "failed"
     verdict: dict[str, Any] | None = None
@@ -627,6 +642,22 @@ async def run_scenario_instance(
     await store.insert_events(run_id, writer.events)
     await store.insert_turns(run_id, writer.turn_metrics())
     await store.finish_run(run_id, status, summary, ended_utc)
+
+    # ── Phase: after_run hooks ──────────────────────────────────────────
+    plugin_registry.run_after_run_hooks(
+        AfterRunContext(
+            scenario=scenario,
+            project_root=Path(cfg.project_root),
+            run_id=run_id,
+            run_name=run_name,
+            report_dir=report_dir,
+            status=status,
+            summary=summary,
+            events=list(writer.events),
+            verdict=verdict,
+            options=dict(scenario.script_verify.plugin_options) if scenario.script_verify else {},
+        ),
+    )
 
     return {
         "run_id": run_id,
