@@ -285,6 +285,13 @@ def execute_all_cmd(
         help="Run up to N scenarios at once (default 1 = sequential). "
         "Within each scenario, --repeat stays sequential.",
     ),
+    wait: float = typer.Option(
+        0.0,
+        "--wait",
+        help="Cooldown seconds after a scenario finishes before the next starts "
+        "on that concurrency slot (sequential: between scenarios). "
+        "Default 0. Does not delay the first wave; does not replace agent-join wait.",
+    ),
     root: Optional[Path] = ROOT_OPTION,
 ) -> None:
     """Execute multiple scenarios; print suite matrix + CI gate. (MCP: execute_scenarios)"""
@@ -298,6 +305,7 @@ def execute_all_cmd(
             repeat=repeat,
             pass_at_k=pass_at_k,
             parallel=parallel,
+            wait_s=wait,
         )
     )
     _print(result)
