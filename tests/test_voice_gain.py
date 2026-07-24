@@ -60,10 +60,13 @@ async def test_bridge_play_pcm_applies_voice_gain() -> None:
     bridge._script_hangup_farewell = False
     bridge._source = _FakeSrc()
     bridge.recorder = None
-    bridge._mixer = ParallelMicMixer(bridge._source, sample_rate=24_000, frame_ms=10)
+    bridge._mixer = ParallelMicMixer(
+        bridge._source, sample_rate=24_000, frame_ms=10, speech_preroll_ms=0
+    )
     n = bridge._mixer.frame_samples
     pcm = array.array("h", [1000] * n).tobytes()
     await bridge._play_pcm(pcm)
+    bridge._mixer.end_speech_turn()
     out = array.array("h")
     out.frombytes(bridge._mixer._pop_frame())
     assert out[0] == 500

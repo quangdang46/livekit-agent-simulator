@@ -58,6 +58,9 @@ def _run_failed(result: dict[str, Any], *, strict_judge: bool = False) -> bool:
 def _run(coro: Any) -> Any:
     try:
         return asyncio.run(coro)
+    except KeyboardInterrupt:
+        typer.secho("\nInterrupted — stopping.", fg=typer.colors.YELLOW, err=True)
+        raise typer.Exit(130)
     except (ConfigError, ScenarioError, RuntimeError) as e:
         typer.secho(str(e), fg=typer.colors.RED, err=True)
         raise typer.Exit(1)

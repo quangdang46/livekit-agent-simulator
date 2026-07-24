@@ -533,6 +533,8 @@ class GeminiCallerBridge:
                 self.suppress_persona_output(int(duration_s * 1000) + 400)
                 speech_gain = max(0.0, min(1.0, float(gain) * self._voice_gain))
                 self._mixer.push_speech(pcm, gain=speech_gain)
+                # Complete WAV — not burst TTS; drain without jitter waterline hold.
+                self._mixer.end_speech_turn()
                 mix = "speech"
                 await asyncio.sleep(duration_s)
             else:
@@ -668,6 +670,8 @@ class GeminiCallerBridge:
         self.suppress_persona_output(int(duration_s * 1000) + 400)
         speech_gain = max(0.0, min(1.0, float(gain) * self._voice_gain))
         self._mixer.push_speech(pcm, gain=speech_gain)
+        # Complete local TTS buffer — drain without mid-turn underrun hold.
+        self._mixer.end_speech_turn()
         self.writer.emit(
             "sim.script_inject",
             spec={
@@ -799,6 +803,9 @@ class GeminiCallerBridge:
                                 await self._play_pcm(blob.data)
 
                     if sc.turn_complete:
+                        if self._mixer is not None:
+                            # Allow silence pad / drain — stop mid-utterance underrun hold.
+                            self._mixer.end_speech_turn()
                         inject_turn = self._inject_turn_active
                         # inject_cue owns clearing _inject_turn_active after drain.
                         if not inject_turn:

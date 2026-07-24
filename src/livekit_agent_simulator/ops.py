@@ -457,17 +457,63 @@ async def execute_scenarios(
     if parallel == 1 or len(targets) <= 1:
         results: list[dict[str, Any]] = []
         for sid in targets:
+            # Cooperative cancel: do not start the next scenario after Ctrl+C.
+            task = asyncio.current_task()
+            cancelling = getattr(task, "cancelling", None) if task is not None else None
+            if callable(cancelling) and cancelling():
+                raise asyncio.CancelledError()
             results.append(await _one(sid))
     else:
-        sem = asyncio.Semaphore(parallel)
+        # Admit at most ``parallel`` workers. Do NOT spawn one task per scenario
+        # behind a semaphore: on cancel, a released slot can admit a waiter that
+        # has not yet seen CancelledError, so "a few more" scenarios still start.
+        stop = asyncio.Event()
+        q: asyncio.Queue[str | None] = asyncio.Queue()
+        for sid in targets:
+            q.put_nowait(sid)
+        for _ in range(parallel):
+            q.put_nowait(None)  # sentinel per worker
 
-        async def _bounded(sid: str) -> dict[str, Any]:
-            async with sem:
-                return await _one(sid)
+        results_by_id: dict[str, dict[str, Any]] = {}
+        result_lock = asyncio.Lock()
 
-        # Preserve input order in the suite matrix
-        results = list(await asyncio.gather(*[_bounded(sid) for sid in targets]))
+        async def _worker() -> None:
+            while True:
+                if stop.is_set():
+                    return
+                sid = await q.get()
+                if sid is None:
+                    return
+                if stop.is_set():
+                    return
+                try:
+                    out = await _one(sid)
+                except asyncio.CancelledError:
+                    stop.set()
+                    raise
+                async with result_lock:
+                    results_by_id[sid] = out
 
+        workers = [asyncio.create_task(_worker(), name=f"suite-worker-{i}") for i in range(parallel)]
+        try:
+            await asyncio.gather(*workers)
+        except asyncio.CancelledError:
+            stop.set()
+            for w in workers:
+                w.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+            raise
+        results = [
+            results_by_id.get(
+                sid,
+                {
+                    "executed": False,
+                    "scenario_id": sid,
+                    "error": "CancelledError: suite stopped before this scenario ran",
+                },
+            )
+            for sid in targets
+        ]
     suite = build_suite_report(results, strict_judge=strict_judge, tag=tag)
     out: dict[str, Any] = {
         "count": len(results),
